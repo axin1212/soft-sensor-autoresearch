@@ -1,0 +1,6 @@
+interface:
+  display_name: "Soft Sensor AutoResearch"
+  short_description: "Run local FDE TabPFN soft-sensor search"
+  default_prompt: "Use $soft-sensor-autoresearch to evaluate offline soft-sensor fitability with FDE TabPFN."
+policy:
+  allow_implicit_invocation: false
