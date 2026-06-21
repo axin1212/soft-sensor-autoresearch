@@ -24,6 +24,7 @@ python scripts/run_soft_sensor_autoresearch.py <data-file> <target-column>
 
 Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15.
+- `--num-train-samples <n>` controls TabPFN context size; reduce this on memory-limited laptops.
 - `--fde-root <path>` points to a local FDE or benchmark checkout.
 - `--output-dir <path>` overrides the output directory; default is next to the dataset.
 

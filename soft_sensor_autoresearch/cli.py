@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("data_file", type=Path)
     parser.add_argument("target_column")
     parser.add_argument("--time-budget-minutes", type=float, default=15.0)
+    parser.add_argument("--num-train-samples", type=int, default=400)
     parser.add_argument("--fde-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--open", action="store_true", dest="open_report")
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         data_file=args.data_file,
         target_column=args.target_column,
         time_budget_minutes=args.time_budget_minutes,
+        num_train_samples=args.num_train_samples,
         fde_root=args.fde_root,
         output_dir=args.output_dir,
         open_report=args.open_report,
@@ -50,6 +52,7 @@ def run_autoresearch(
     data_file: Path,
     target_column: str,
     time_budget_minutes: float = 15.0,
+    num_train_samples: int = 400,
     fde_root: Path | None = None,
     output_dir: Path | None = None,
     open_report: bool = False,
@@ -89,6 +92,7 @@ def run_autoresearch(
         SearchConfig(
             time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
             report_path=artifacts.report_path,
+            num_train_samples=num_train_samples,
         ),
         runner,
     )
