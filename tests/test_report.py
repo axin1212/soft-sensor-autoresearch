@@ -39,3 +39,34 @@ def test_write_report_contains_core_elements(tmp_path):
     assert "45-degree" in html
     assert "#1" in html
     assert "boom" in html
+
+
+def test_write_report_surfaces_holdout_errors(tmp_path):
+    state = ReportState(
+        candidates=[
+            CandidateReport(
+                candidate_id="c1",
+                score=float("-inf"),
+                status="complete",
+                holdouts=[
+                    HoldoutRunResult(
+                        candidate_id="c1",
+                        holdout_name="h1",
+                        status="error",
+                        actual=np.array([]),
+                        predictions=np.array([]),
+                        r2=float("nan"),
+                        rmse=float("nan"),
+                        selected_features=[],
+                        error="TPT child process failed",
+                    )
+                ],
+            )
+        ]
+    )
+    path = tmp_path / "report.html"
+
+    write_report(path, state)
+
+    html = path.read_text()
+    assert "h1: error: TPT child process failed" in html

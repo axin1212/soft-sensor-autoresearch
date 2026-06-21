@@ -152,36 +152,11 @@ def _run_tpt_child(
             path_entries.append(existing)
         env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(path_entries))
 
-        code = textwrap.dedent(
-            """
-            from pathlib import Path
-            import sys
-            import numpy as np
-            from kernels.predictors.TPT_tab import TPTTabRegressor
-
-            x_train = np.load(sys.argv[1])
-            y_train = np.load(sys.argv[2])
-            x_test = np.load(sys.argv[3])
-            pred_path = Path(sys.argv[4])
-            device = sys.argv[5]
-            fit_mode = sys.argv[6]
-            n_estimators = int(sys.argv[7])
-
-            model = TPTTabRegressor(
-                n_estimators=n_estimators,
-                device=device,
-                fit_mode=fit_mode,
-            )
-            model.fit(x_train, y_train)
-            result = model.predict(x_test)
-            np.save(pred_path, np.asarray(result.mean, dtype=np.float32))
-            """
-        )
         completed = subprocess.run(
             [
                 sys.executable,
                 "-c",
-                code,
+                _tpt_child_code(),
                 str(train_x_path),
                 str(train_y_path),
                 str(test_x_path),
@@ -201,6 +176,39 @@ def _run_tpt_child(
                 f"(code={completed.returncode})\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
             )
         return np.load(pred_path).astype(float)
+
+
+def _tpt_child_code() -> str:
+    return textwrap.dedent(
+        """
+        from pathlib import Path
+        import sys
+        import numpy as np
+        import torch
+        import tpt_tab.utils as tpt_utils
+        from kernels.predictors.TPT_tab import TPTTabRegressor
+
+        x_train = np.load(sys.argv[1])
+        y_train = np.load(sys.argv[2])
+        x_test = np.load(sys.argv[3])
+        pred_path = Path(sys.argv[4])
+        device = sys.argv[5]
+        fit_mode = sys.argv[6]
+        n_estimators = int(sys.argv[7])
+
+        if device == "mps" and torch.backends.mps.is_available():
+            tpt_utils._is_mps_supported = lambda: True
+
+        model = TPTTabRegressor(
+            n_estimators=n_estimators,
+            device=device,
+            fit_mode=fit_mode,
+        )
+        model.fit(x_train, y_train)
+        result = model.predict(x_test)
+        np.save(pred_path, np.asarray(result.mean, dtype=np.float32))
+        """
+    )
 
 
 class FdeWindowFeatureBuilder:

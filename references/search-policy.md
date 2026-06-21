@@ -12,17 +12,17 @@ Core rules:
 - Do not early stop. Run until the requested time budget is essentially exhausted.
 - If two rounds do not improve clearly, backtrack to a prior high-value node and explore another path.
 
-Score candidates by robust score:
+Score candidates by direct mean R-squared across completed holdout runs:
 
 ```text
-mean_r2 - 0.5 * std_r2 - 0.25 * max(0, 0.0 - min_r2)
+mean(completed_holdout_r2_values)
 ```
 
-Partial candidates receive an additional penalty of `0.1 * missing_holdout_count`.
+Do not subtract stability, floor, or missing-window penalties from the ranking score. Keep per-holdout R-squared values visible in the report so robustness remains inspectable without making the score opaque.
 
 HTML report:
 
-- Sort by robust score.
+- Sort by mean R-squared score.
 - Show actual values on x-axis and predictions on y-axis.
 - Draw a 45-degree reference line in every subplot.
 - Display each holdout R-squared value in the subplot title.

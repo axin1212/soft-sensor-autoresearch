@@ -90,10 +90,7 @@ def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
 def _candidate_index(candidates: list[CandidateReport]) -> str:
     rows = []
     for rank, candidate in enumerate(candidates, start=1):
-        r2_values = ", ".join(
-            f"{h.holdout_name}: n={len(h.actual)}, R²={h.r2:.3f}"
-            for h in candidate.holdouts
-        )
+        r2_values = ", ".join(_holdout_detail(h) for h in candidate.holdouts)
         detail = r2_values or html.escape(candidate.error or "")
         rows.append(
             "<tr>"
@@ -105,8 +102,15 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
             "</tr>"
         )
     return (
-        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Score</th><th>Status</th><th>R² / Error</th>"
+        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
     )
+
+
+def _holdout_detail(holdout: HoldoutRunResult) -> str:
+    name = html.escape(holdout.holdout_name)
+    if holdout.error:
+        return f"{name}: error: {html.escape(holdout.error)}"
+    return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}"

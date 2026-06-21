@@ -1,6 +1,6 @@
 ---
 name: soft-sensor-autoresearch
-description: Run local offline soft-sensor AutoResearch with FDE TabPFN3, SISSO-style derived features, robust holdout scoring, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run the soft-sensor AutoResearch skill.
+description: Run local offline soft-sensor AutoResearch with FDE TabPFN3, SISSO-style derived features, mean R-squared candidate ranking, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run the soft-sensor AutoResearch skill.
 ---
 
 # Soft Sensor AutoResearch
@@ -43,4 +43,4 @@ Model weights:
 
 TPT_tab runs in an isolated child process. This avoids Metal/TPT runtime crashes caused by fitting TPT in the same Python process that just performed FDE feature extraction.
 
-Return the final `report.html` path and summarize the best robust score.
+Return the final `report.html` path and summarize the best mean R-squared score.

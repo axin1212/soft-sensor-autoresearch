@@ -43,5 +43,6 @@ def robust_score(
 
 def candidate_score(r2_values: Sequence[float | None], total_windows: int) -> float:
     present = [value for value in r2_values if value is not None and np.isfinite(value)]
-    missing = max(0, total_windows - len(present))
-    return robust_score(present) - 0.1 * missing
+    if len(present) == 0:
+        return float("-inf")
+    return float(np.mean(present))
