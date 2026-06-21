@@ -1,9 +1,19 @@
 from __future__ import annotations
 
-from soft_sensor_autoresearch.cli import main
+from pathlib import Path
+
+from soft_sensor_autoresearch import cli
 
 
-def test_cli_smoke(capsys):
-    rc = main(["data.parquet", "target"])
+def test_cli_smoke(monkeypatch, capsys):
+    def fake_run_autoresearch(**kwargs):
+        assert kwargs["data_file"] == Path("data.parquet")
+        assert kwargs["target_column"] == "target"
+        return Path("/tmp/report.html")
+
+    monkeypatch.setattr(cli, "run_autoresearch", fake_run_autoresearch)
+
+    rc = cli.main(["data.parquet", "target"])
+
     assert rc == 0
-    assert "target=target" in capsys.readouterr().out
+    assert "report.html: /tmp/report.html" in capsys.readouterr().out

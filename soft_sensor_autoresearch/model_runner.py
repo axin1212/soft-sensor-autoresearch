@@ -8,6 +8,7 @@ import pandas as pd
 
 from soft_sensor_autoresearch.context_sampling import sample_context_indices
 from soft_sensor_autoresearch.data_contracts import ColumnContract
+from soft_sensor_autoresearch.derived_features import generate_derived_features, select_derived_features
 from soft_sensor_autoresearch.feature_pool import (
     FdeFeatureBuilder,
     WindowFeatureRequest,
@@ -53,6 +54,7 @@ def run_candidate_holdout(
     fde_builder: FdeFeatureBuilder,
     predictor_factory: PredictorFactory,
 ) -> HoldoutRunResult:
+    df, columns = _apply_candidate_features(df, columns, config)
     labels = df[df[columns.target_column].notna()].copy()
     label_times = pd.to_datetime(labels[columns.time_column])
     context_labels = labels[
@@ -82,7 +84,8 @@ def run_candidate_holdout(
 
     predictor = predictor_factory()
     predictor.fit(train_features[selected].fillna(0.0), y_train.to_numpy(dtype=float))
-    predictions = np.asarray(predictor.predict(test_features[selected].fillna(0.0)), dtype=float)
+    raw_predictions = predictor.predict(test_features[selected].fillna(0.0))
+    predictions = _prediction_array(raw_predictions)
 
     return HoldoutRunResult(
         candidate_id=config.candidate_id,
@@ -112,3 +115,39 @@ def _build_features(
         include_frequency=config.include_frequency,
     )
     return build_window_feature_pool(request, fde_builder).features
+
+
+def _apply_candidate_features(
+    df: pd.DataFrame,
+    columns: ColumnContract,
+    config: CandidateConfig,
+) -> tuple[pd.DataFrame, ColumnContract]:
+    if config.max_derived_features <= 0:
+        return df, columns
+    derived, derived_columns = generate_derived_features(df, columns.feature_columns, columns.time_column)
+    if not derived_columns:
+        return df, columns
+    merged = pd.concat([df.reset_index(drop=True), derived.reset_index(drop=True)], axis=1)
+    selected = select_derived_features(
+        merged,
+        columns.target_column,
+        derived_columns,
+        max_features=config.max_derived_features,
+    )
+    return (
+        merged,
+        ColumnContract(
+            time_column=columns.time_column,
+            target_column=columns.target_column,
+            feature_columns=[*columns.feature_columns, *selected],
+        ),
+    )
+
+
+def _prediction_array(raw_predictions: object) -> np.ndarray:
+    if hasattr(raw_predictions, "mean"):
+        mean = getattr(raw_predictions, "mean")
+        if callable(mean):
+            return np.asarray(raw_predictions, dtype=float)
+        return np.asarray(mean, dtype=float)
+    return np.asarray(raw_predictions, dtype=float)
