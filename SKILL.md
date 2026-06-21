@@ -37,6 +37,9 @@ Useful options:
 - `--tpt-n-estimators <n>` controls TPT_tab ensemble size; default is `1` for fast laptop validation.
 - `--fde-root <path>` points to a local FDE or benchmark checkout.
 - `--output-dir <path>` overrides the output directory; default is next to the dataset.
+- Resource usage logging is enabled by default and writes `resource_usage.csv` next to `report.html`.
+- `--resource-log-interval-seconds <seconds>` controls process-tree CPU/RSS sampling; default is `2.0`.
+- `--no-resource-log` disables the default resource log.
 
 Model weights:
 - `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.
@@ -44,4 +47,6 @@ Model weights:
 
 TPT_tab runs in an isolated child process. This avoids Metal/TPT runtime crashes caused by fitting TPT in the same Python process that just performed FDE feature extraction.
 
-Return the final `report.html` path and summarize the best mean R-squared score.
+Resource logging records process-tree CPU percent and RSS memory. TPT MPS runs also append `mps_event` rows with PyTorch MPS allocated/driver memory at fit/predict stages. Apple GPU utilization and power require sudo `powermetrics`, so do not describe MPS memory rows as true GPU utilization percent.
+
+Return the final `report.html` and `resource_usage.csv` paths and summarize the best mean R-squared score.

@@ -23,6 +23,10 @@ class RunArtifacts:
         return self.run_dir / "report.html"
 
     @property
+    def resource_usage_path(self) -> Path:
+        return self.run_dir / "resource_usage.csv"
+
+    @property
     def best_derived_features_path(self) -> Path:
         return self.run_dir / "best_derived_features.parquet"
 

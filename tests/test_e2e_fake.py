@@ -49,6 +49,11 @@ def test_run_autoresearch_fake_e2e_generates_report(tmp_path):
     )
 
     assert report.exists()
+    resource_log = report.parent / "resource_usage.csv"
+    assert resource_log.exists()
+    resource_text = resource_log.read_text()
+    assert "cpu_percent_sum" in resource_text
+    assert "mps_current_allocated_mb" in resource_text
     html = report.read_text()
     assert "Soft Sensor AutoResearch" in html
     assert "R²" in html

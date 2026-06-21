@@ -10,6 +10,7 @@ def test_run_artifacts_creates_expected_paths(tmp_path):
 
     assert artifacts.run_dir.exists()
     assert artifacts.report_path.name == "report.html"
+    assert artifacts.resource_usage_path.name == "resource_usage.csv"
     assert artifacts.best_derived_features_path.name == "best_derived_features.parquet"
     assert artifacts.candidate_dir("c1").exists()
 

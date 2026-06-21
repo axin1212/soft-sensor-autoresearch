@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
+import os
 from pathlib import Path
+import time
 import webbrowser
 
 import pandas as pd
@@ -18,6 +21,7 @@ from soft_sensor_autoresearch.fde_bridge import (
 )
 from soft_sensor_autoresearch.holdout import build_holdout_plan
 from soft_sensor_autoresearch.model_runner import run_candidate_holdout
+from soft_sensor_autoresearch.resource_logging import ResourceMonitor
 from soft_sensor_autoresearch.search import SearchConfig, run_search
 
 
@@ -41,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tpt-n-estimators", type=int, default=1)
     parser.add_argument("--fde-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--resource-log-interval-seconds", type=float, default=2.0)
+    parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -63,9 +69,13 @@ def main(argv: list[str] | None = None) -> int:
         tpt_n_estimators=args.tpt_n_estimators,
         fde_root=args.fde_root,
         output_dir=args.output_dir,
+        resource_log=args.resource_log,
+        resource_log_interval_seconds=args.resource_log_interval_seconds,
         open_report=args.open_report,
     )
     print(f"report.html: {report_path}")
+    if args.resource_log:
+        print(f"resource_usage.csv: {report_path.parent / 'resource_usage.csv'}")
     return 0
 
 
@@ -85,6 +95,8 @@ def run_autoresearch(
     tpt_n_estimators: int = 1,
     fde_root: Path | None = None,
     output_dir: Path | None = None,
+    resource_log: bool = True,
+    resource_log_interval_seconds: float = 2.0,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,
@@ -121,6 +133,15 @@ def run_autoresearch(
         validation_fraction=validation_fraction,
     )
     artifacts = RunArtifacts.create(output_dir or data_file.parent)
+    monitor = (
+        ResourceMonitor(
+            artifacts.resource_usage_path,
+            interval_seconds=resource_log_interval_seconds,
+            start_epoch=time.time(),
+        )
+        if resource_log
+        else nullcontext()
+    )
 
     def runner(candidate, holdout):
         return run_candidate_holdout(
@@ -132,17 +153,27 @@ def run_autoresearch(
             predictor_factory,
         )
 
-    run_search(
-        holdouts,
-        SearchConfig(
-            time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
-            report_path=artifacts.report_path,
-            default_window_minutes=resolved_window_minutes,
-            num_train_samples=num_train_samples,
-            top_features_n=top_features_n,
-        ),
-        runner,
-    )
+    previous_resource_log = os.environ.get("SOFT_SENSOR_RESOURCE_LOG_PATH")
+    previous_resource_start = os.environ.get("SOFT_SENSOR_RESOURCE_LOG_START_EPOCH")
+    if resource_log:
+        os.environ["SOFT_SENSOR_RESOURCE_LOG_PATH"] = str(artifacts.resource_usage_path)
+        os.environ["SOFT_SENSOR_RESOURCE_LOG_START_EPOCH"] = str(monitor.start_epoch)
+    try:
+        with monitor:
+            run_search(
+                holdouts,
+                SearchConfig(
+                    time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
+                    report_path=artifacts.report_path,
+                    default_window_minutes=resolved_window_minutes,
+                    num_train_samples=num_train_samples,
+                    top_features_n=top_features_n,
+                ),
+                runner,
+            )
+    finally:
+        _restore_env("SOFT_SENSOR_RESOURCE_LOG_PATH", previous_resource_log)
+        _restore_env("SOFT_SENSOR_RESOURCE_LOG_START_EPOCH", previous_resource_start)
     if open_report:
         webbrowser.open(artifacts.report_path.as_uri())
     return artifacts.report_path
@@ -157,3 +188,10 @@ def _infer_sampling_minutes(df, time_column: str) -> int:
     if deltas.empty:
         return 60
     return max(1, int(round(float(deltas.median()))))
+
+
+def _restore_env(name: str, previous: str | None) -> None:
+    if previous is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = previous
