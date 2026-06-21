@@ -28,6 +28,7 @@ class CandidateConfig:
     num_train_samples: int = 400
     include_frequency: bool = False
     random_state: int = 42
+    top_features_n: int = 32
 
 
 @dataclass(frozen=True)
@@ -78,14 +79,25 @@ def run_candidate_holdout(
     y_train = pd.to_numeric(train_labels[columns.target_column], errors="coerce")
     y_test = pd.to_numeric(holdout_labels[columns.target_column], errors="coerce").to_numpy(dtype=float)
 
-    selected, _ = select_top_features_xgboost(train_features, y_train, k=32, random_state=config.random_state)
+    selected, _ = select_top_features_xgboost(
+        train_features,
+        y_train,
+        k=config.top_features_n,
+        random_state=config.random_state,
+    )
     if not selected:
-        selected = list(train_features.columns[: min(32, len(train_features.columns))])
+        selected = list(train_features.columns[: min(config.top_features_n, len(train_features.columns))])
+
+    x_train_model, x_test_model = _standardize_features(
+        train_features[selected].fillna(0.0),
+        test_features[selected].fillna(0.0),
+    )
+    y_train_model, y_center, y_scale = _standardize_target(y_train.to_numpy(dtype=float))
 
     predictor = predictor_factory()
-    predictor.fit(train_features[selected].fillna(0.0), y_train.to_numpy(dtype=float))
-    raw_predictions = predictor.predict(test_features[selected].fillna(0.0))
-    predictions = _prediction_array(raw_predictions)
+    predictor.fit(x_train_model, y_train_model)
+    raw_predictions = predictor.predict(x_test_model)
+    predictions = _prediction_array(raw_predictions) * y_scale + y_center
 
     return HoldoutRunResult(
         candidate_id=config.candidate_id,
@@ -151,3 +163,27 @@ def _prediction_array(raw_predictions: object) -> np.ndarray:
             return np.asarray(raw_predictions, dtype=float)
         return np.asarray(mean, dtype=float)
     return np.asarray(raw_predictions, dtype=float)
+
+
+def _standardize_features(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray]:
+    train_arr = train.to_numpy(dtype=float)
+    test_arr = test.to_numpy(dtype=float)
+    center = np.nanmean(train_arr, axis=0)
+    scale = np.nanstd(train_arr, axis=0)
+    scale[~np.isfinite(scale) | (scale < 1e-9)] = 1.0
+    center[~np.isfinite(center)] = 0.0
+    return (
+        ((train_arr - center) / scale).astype("float32"),
+        ((test_arr - center) / scale).astype("float32"),
+    )
+
+
+def _standardize_target(y: np.ndarray) -> tuple[np.ndarray, float, float]:
+    center = float(np.nanmean(y))
+    scale = float(np.nanstd(y))
+    if not np.isfinite(scale) or scale < 1e-9:
+        scale = 1.0
+    return ((y - center) / scale).astype("float32"), center, scale

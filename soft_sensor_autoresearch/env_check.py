@@ -32,7 +32,7 @@ class EnvironmentReport:
             f"Python: {self.python}",
             f"CWD: {self.cwd}",
             f"FDE root: {self.fde_root or 'not found'}",
-            f"TabPFN weights: {self.weight_status}",
+            f"Model weights: {self.weight_status}",
         ]
         for dep in self.dependencies:
             mark = "OK" if dep.ok else "FAIL"
@@ -46,13 +46,23 @@ def check_import(name: str) -> DependencyStatus:
     return DependencyStatus(name=name, ok=spec is not None, detail="importable" if spec else "missing")
 
 
-def build_environment_report(fde_root: Path | None) -> EnvironmentReport:
-    deps = [check_import(name) for name in ("tabpfn", "xgboost", "plotly", "pyarrow")]
+def build_environment_report(fde_root: Path | None, model_type: str = "tabpfn3") -> EnvironmentReport:
+    required = ["xgboost", "plotly", "pyarrow"]
+    if model_type == "tabpfn3":
+        required.insert(0, "tabpfn")
+        weight_status = "deferred to FDE TabPFN resolver"
+    elif model_type == "tpt":
+        required.insert(0, "tpt_tab")
+        weight_status = "deferred to FDE TPT_tab resolver"
+    else:
+        required.insert(0, model_type)
+        weight_status = "not checked"
+    deps = [check_import(name) for name in required]
     deps.append(check_import("tsfresh"))
     return EnvironmentReport(
         python=sys.version.split()[0],
         cwd=os.getcwd(),
         fde_root=fde_root,
         dependencies=deps,
-        weight_status="deferred to FDE TabPFN resolver",
+        weight_status=weight_status,
     )

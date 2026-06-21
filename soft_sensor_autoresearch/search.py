@@ -40,6 +40,7 @@ def run_search(
         num_train_samples=config.num_train_samples,
         include_frequency=False,
         random_state=config.random_state,
+        top_features_n=config.top_features_n,
     )
     baseline_results = [runner(baseline, holdout) for holdout in holdouts.intervals]
     reports.append(_candidate_report(baseline, baseline_results, len(holdouts.intervals)))
@@ -70,11 +71,11 @@ def run_search(
 
 def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
     return [
-        CandidateConfig("sisso_256", 256, config.default_window_minutes, "uniform", config.num_train_samples),
-        CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples),
-        CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples),
-        CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples),
-        CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True),
+        CandidateConfig("sisso_256", 256, config.default_window_minutes, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
+        CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
+        CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
+        CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples, top_features_n=config.top_features_n),
+        CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True, top_features_n=config.top_features_n),
     ]
 
 

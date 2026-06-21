@@ -11,7 +11,7 @@ Required user inputs:
 - Dataset file path (`.csv` or `.parquet`)
 - Target column name
 
-Before running, check local FDE/TabPFN availability. Do not silently fall back to XGBoost if TabPFN3 is unavailable.
+Before running, check local FDE/model availability. Do not silently fall back to XGBoost if the requested FDE model is unavailable.
 
 Read `references/fde-integration.md` when FDE discovery, TabPFN weights, or environment checks are relevant.
 Read `references/search-policy.md` when explaining or modifying the search strategy.
@@ -24,8 +24,19 @@ python scripts/run_soft_sensor_autoresearch.py <data-file> <target-column>
 
 Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15.
-- `--num-train-samples <n>` controls TabPFN context size; reduce this on memory-limited laptops.
+- `--num-train-samples <n>` controls the ICL context size; reduce this on memory-limited laptops.
+- `--top-features-n <n>` controls how many ranked features enter the model; default is 32.
+- `--model-type <tabpfn3|tpt>` selects the FDE model path. Default is `tabpfn3`.
+- `--tabpfn-device <cpu|auto|mps|cuda>` controls TabPFN device; default is `cpu` for laptop stability.
+- `--tabpfn-fit-mode <mode>` controls TabPFN preprocessing/cache mode; default is `low_memory`.
+- `--tpt-device <cpu|auto|mps|cuda>` controls TPT_tab device; default is `cpu`.
+- `--tpt-fit-mode <mode>` controls TPT_tab preprocessing/cache mode; default is `low_memory`.
+- `--tpt-n-estimators <n>` controls TPT_tab ensemble size; default is `1` for fast laptop validation.
 - `--fde-root <path>` points to a local FDE or benchmark checkout.
 - `--output-dir <path>` overrides the output directory; default is next to the dataset.
+
+Model weights:
+- `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.
+- `--model-type tpt` uses FDE `TPTTabRegressor` with `$FDE_TPT_WEIGHTS_DIR/TPT_tab/model.ckpt`.
 
 Return the final `report.html` path and summarize the best robust score.

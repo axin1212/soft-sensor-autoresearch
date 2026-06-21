@@ -48,14 +48,37 @@ def add_fde_to_path(root: Path) -> None:
             sys.path.insert(0, str(path))
 
 
-def load_tabpfn3_predictor_factory():
+def load_tabpfn3_predictor_factory(device: str = "cpu", fit_mode: str = "low_memory"):
     try:
-        from kernels.foundation.adapters.single_step import FoundationTabularPredictor
+        from kernels.foundation.weights import resolve_checkpoint_file
+        from tabpfn import TabPFNRegressor
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"could not import FDE TabPFN3 predictor: {exc}") from exc
 
     def factory():
-        return FoundationTabularPredictor(kernel_id="tabpfn3", device="auto")
+        model_path = resolve_checkpoint_file("tabpfn3", pattern="*regressor*.ckpt")
+        return TabPFNRegressor(
+            device=device,
+            model_path=model_path,
+            categorical_features_indices=[],
+            fit_mode=fit_mode,
+        )
+
+    return factory
+
+
+def load_tpt_predictor_factory(device: str = "cpu", fit_mode: str = "low_memory", n_estimators: int = 1):
+    try:
+        from kernels.predictors.TPT_tab import TPTTabRegressor
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"could not import FDE TPT_tab predictor: {exc}") from exc
+
+    def factory():
+        return TPTTabRegressor(
+            n_estimators=n_estimators,
+            device=device,
+            fit_mode=fit_mode,
+        )
 
     return factory
 

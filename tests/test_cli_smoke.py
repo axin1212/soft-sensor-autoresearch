@@ -9,6 +9,7 @@ def test_cli_smoke(monkeypatch, capsys):
     def fake_run_autoresearch(**kwargs):
         assert kwargs["data_file"] == Path("data.parquet")
         assert kwargs["target_column"] == "target"
+        assert kwargs["model_type"] == "tabpfn3"
         return Path("/tmp/report.html")
 
     monkeypatch.setattr(cli, "run_autoresearch", fake_run_autoresearch)
