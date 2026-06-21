@@ -42,7 +42,7 @@ def run_search(
         random_state=config.random_state,
         top_features_n=config.top_features_n,
     )
-    baseline_results = [runner(baseline, holdout) for holdout in holdouts.intervals]
+    baseline_results = [_safe_run(runner, baseline, holdout) for holdout in holdouts.intervals]
     reports.append(_candidate_report(baseline, baseline_results, len(holdouts.intervals)))
     write_report(config.report_path, ReportState(_rank(reports)))
 
@@ -53,14 +53,14 @@ def run_search(
     for candidate in candidates:
         if time.monotonic() >= deadline:
             break
-        quick_result = runner(candidate, quick_holdout)
+        quick_result = _safe_run(runner, candidate, quick_holdout)
         results: list[HoldoutRunResult] = [quick_result]
         baseline_worst = next(result.r2 for result in baseline_results if result.holdout_name == worst)
         if quick_result.r2 >= baseline_worst:
             for holdout in holdouts.intervals:
                 if holdout.name == quick_holdout.name or time.monotonic() >= deadline:
                     continue
-                results.append(runner(candidate, holdout))
+                results.append(_safe_run(runner, candidate, holdout))
         reports.append(_candidate_report(candidate, results, len(holdouts.intervals)))
         write_report(config.report_path, ReportState(_rank(reports)))
 
@@ -77,6 +77,27 @@ def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
         CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples, top_features_n=config.top_features_n),
         CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True, top_features_n=config.top_features_n),
     ]
+
+
+def _safe_run(
+    runner: CandidateRunner,
+    candidate: CandidateConfig,
+    holdout: HoldoutInterval,
+) -> HoldoutRunResult:
+    try:
+        return runner(candidate, holdout)
+    except Exception as exc:  # noqa: BLE001
+        return HoldoutRunResult(
+            candidate_id=candidate.candidate_id,
+            holdout_name=holdout.name,
+            status="error",
+            actual=[],
+            predictions=[],
+            r2=float("nan"),
+            rmse=float("nan"),
+            selected_features=[],
+            error=repr(exc),
+        )
 
 
 def _candidate_report(

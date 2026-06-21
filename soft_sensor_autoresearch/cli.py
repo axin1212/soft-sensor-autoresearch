@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import webbrowser
 
+import pandas as pd
+
 from soft_sensor_autoresearch.artifacts import RunArtifacts
 from soft_sensor_autoresearch.data_contracts import infer_columns, load_dataset
 from soft_sensor_autoresearch.env_check import build_environment_report
@@ -29,11 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--time-budget-minutes", type=float, default=15.0)
     parser.add_argument("--num-train-samples", type=int, default=400)
     parser.add_argument("--top-features-n", type=int, default=32)
+    parser.add_argument("--window-minutes", type=int, default=None)
     parser.add_argument("--model-type", choices=("tabpfn3", "tpt"), default="tabpfn3")
     parser.add_argument("--tabpfn-device", default="cpu")
     parser.add_argument("--tabpfn-fit-mode", default="low_memory")
-    parser.add_argument("--tpt-device", default="cpu")
-    parser.add_argument("--tpt-fit-mode", default="low_memory")
+    parser.add_argument("--tpt-device", default="mps")
+    parser.add_argument("--tpt-fit-mode", default="fit_preprocessors")
     parser.add_argument("--tpt-n-estimators", type=int, default=1)
     parser.add_argument("--fde-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
@@ -49,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         time_budget_minutes=args.time_budget_minutes,
         num_train_samples=args.num_train_samples,
         top_features_n=args.top_features_n,
+        window_minutes=args.window_minutes,
         model_type=args.model_type,
         tabpfn_device=args.tabpfn_device,
         tabpfn_fit_mode=args.tabpfn_fit_mode,
@@ -69,11 +73,12 @@ def run_autoresearch(
     time_budget_minutes: float = 15.0,
     num_train_samples: int = 400,
     top_features_n: int = 32,
+    window_minutes: int | None = None,
     model_type: str = "tabpfn3",
     tabpfn_device: str = "cpu",
     tabpfn_fit_mode: str = "low_memory",
-    tpt_device: str = "cpu",
-    tpt_fit_mode: str = "low_memory",
+    tpt_device: str = "mps",
+    tpt_fit_mode: str = "fit_preprocessors",
     tpt_n_estimators: int = 1,
     fde_root: Path | None = None,
     output_dir: Path | None = None,
@@ -83,6 +88,7 @@ def run_autoresearch(
 ) -> Path:
     df = load_dataset(data_file)
     columns = infer_columns(df, target_column)
+    resolved_window_minutes = window_minutes or _infer_sampling_minutes(df, columns.time_column)
     resolved_fde = find_fde_root(data_file.parent, explicit=fde_root)
     if resolved_fde is not None:
         add_fde_to_path(resolved_fde)
@@ -123,6 +129,7 @@ def run_autoresearch(
         SearchConfig(
             time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
             report_path=artifacts.report_path,
+            default_window_minutes=resolved_window_minutes,
             num_train_samples=num_train_samples,
             top_features_n=top_features_n,
         ),
@@ -131,3 +138,14 @@ def run_autoresearch(
     if open_report:
         webbrowser.open(artifacts.report_path.as_uri())
     return artifacts.report_path
+
+
+def _infer_sampling_minutes(df, time_column: str) -> int:
+    parsed = pd.to_datetime(df[time_column], errors="coerce").dropna().sort_values()
+    if len(parsed) < 2:
+        return 60
+    deltas = parsed.diff().dropna().dt.total_seconds() / 60.0
+    deltas = deltas[deltas > 0]
+    if deltas.empty:
+        return 60
+    return max(1, int(round(float(deltas.median()))))

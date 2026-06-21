@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import subprocess
 import sys
+import tempfile
+import textwrap
 
+import numpy as np
 import pandas as pd
 
 from soft_sensor_autoresearch.feature_pool import WindowFeatureRequest
@@ -67,20 +71,136 @@ def load_tabpfn3_predictor_factory(device: str = "cpu", fit_mode: str = "low_mem
     return factory
 
 
-def load_tpt_predictor_factory(device: str = "cpu", fit_mode: str = "low_memory", n_estimators: int = 1):
-    try:
-        from kernels.predictors.TPT_tab import TPTTabRegressor
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"could not import FDE TPT_tab predictor: {exc}") from exc
-
+def load_tpt_predictor_factory(device: str = "mps", fit_mode: str = "fit_preprocessors", n_estimators: int = 1):
     def factory():
-        return TPTTabRegressor(
-            n_estimators=n_estimators,
-            device=device,
-            fit_mode=fit_mode,
-        )
+        return IsolatedTPTTabPredictor(device=device, fit_mode=fit_mode, n_estimators=n_estimators)
 
     return factory
+
+
+class IsolatedTPTTabPredictor:
+    """Run TPT_tab fit/predict in a clean child process.
+
+    FDE feature extraction imports enough numerical/runtime libraries that the
+    official TPT-Tab runtime can segfault on Apple Metal when fit in the same
+    process. Keeping the TPT call in a child process preserves MPS acceleration
+    while making the local validation path repeatable.
+    """
+
+    def __init__(
+        self,
+        *,
+        device: str,
+        fit_mode: str,
+        n_estimators: int,
+        jitter_scale: float = 1e-4,
+    ) -> None:
+        self.device = device
+        self.fit_mode = fit_mode
+        self.n_estimators = int(n_estimators)
+        self.jitter_scale = float(jitter_scale)
+        self._x_train: np.ndarray | None = None
+        self._y_train: np.ndarray | None = None
+
+    def fit(self, x, y) -> "IsolatedTPTTabPredictor":
+        x_train = np.asarray(x, dtype=np.float32)
+        y_train = np.asarray(y, dtype=np.float32)
+        if self.jitter_scale > 0 and x_train.size:
+            noise = np.random.default_rng(42).normal(scale=self.jitter_scale, size=x_train.shape)
+            x_train = (x_train + noise).astype(np.float32)
+        self._x_train = x_train
+        self._y_train = y_train
+        return self
+
+    def predict(self, x) -> np.ndarray:
+        if self._x_train is None or self._y_train is None:
+            raise RuntimeError("TPT predictor has not been fitted")
+        x_test = np.asarray(x, dtype=np.float32)
+        return _run_tpt_child(
+            self._x_train,
+            self._y_train,
+            x_test,
+            device=self.device,
+            fit_mode=self.fit_mode,
+            n_estimators=self.n_estimators,
+        )
+
+
+def _run_tpt_child(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_test: np.ndarray,
+    *,
+    device: str,
+    fit_mode: str,
+    n_estimators: int,
+) -> np.ndarray:
+    with tempfile.TemporaryDirectory(prefix="soft-sensor-tpt-") as tmp:
+        tmp_path = Path(tmp)
+        train_x_path = tmp_path / "x_train.npy"
+        train_y_path = tmp_path / "y_train.npy"
+        test_x_path = tmp_path / "x_test.npy"
+        pred_path = tmp_path / "pred.npy"
+        np.save(train_x_path, x_train.astype(np.float32, copy=False))
+        np.save(train_y_path, y_train.astype(np.float32, copy=False))
+        np.save(test_x_path, x_test.astype(np.float32, copy=False))
+
+        env = os.environ.copy()
+        path_entries = [entry for entry in sys.path if entry]
+        existing = env.get("PYTHONPATH")
+        if existing:
+            path_entries.append(existing)
+        env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(path_entries))
+
+        code = textwrap.dedent(
+            """
+            from pathlib import Path
+            import sys
+            import numpy as np
+            from kernels.predictors.TPT_tab import TPTTabRegressor
+
+            x_train = np.load(sys.argv[1])
+            y_train = np.load(sys.argv[2])
+            x_test = np.load(sys.argv[3])
+            pred_path = Path(sys.argv[4])
+            device = sys.argv[5]
+            fit_mode = sys.argv[6]
+            n_estimators = int(sys.argv[7])
+
+            model = TPTTabRegressor(
+                n_estimators=n_estimators,
+                device=device,
+                fit_mode=fit_mode,
+            )
+            model.fit(x_train, y_train)
+            result = model.predict(x_test)
+            np.save(pred_path, np.asarray(result.mean, dtype=np.float32))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                code,
+                str(train_x_path),
+                str(train_y_path),
+                str(test_x_path),
+                str(pred_path),
+                device,
+                fit_mode,
+                str(n_estimators),
+            ],
+            check=False,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "TPT child process failed "
+                f"(code={completed.returncode})\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+            )
+        return np.load(pred_path).astype(float)
 
 
 class FdeWindowFeatureBuilder:
@@ -94,19 +214,22 @@ class FdeWindowFeatureBuilder:
         data = request.data.rename(columns={request.time_column: "Timestamp"}).copy()
         data["Timestamp"] = pd.to_datetime(data["Timestamp"], errors="coerce")
         data = data.sort_values("Timestamp")
+        feature_columns = [col for col in request.feature_columns if col in data.columns]
+        if feature_columns:
+            data[feature_columns] = data[feature_columns].ffill().bfill().fillna(0)
         target_times = pd.to_datetime(request.target_times).to_numpy(dtype="datetime64[ns]")
         extracted = extract_windows(
             data,
             target_times,
             int(request.window_minutes),
-            request.feature_columns,
+            feature_columns,
             WindowGateConfig(),
         )
         if not extracted.window_dfs:
             return pd.DataFrame(index=range(len(target_times)))
         matrix = build_feature_matrix(
             extracted.window_dfs,
-            request.feature_columns,
+            feature_columns,
             resolved_extraction=extraction,
             target_points=10,
             raw_n_points=20,
