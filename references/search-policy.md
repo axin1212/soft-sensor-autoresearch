@@ -8,6 +8,7 @@ Core rules:
 - Degrade to two or one holdout when label count is limited; fail below eight non-null target labels.
 - Keep model input fairness by selecting exactly Top-32 features for every candidate when enough columns exist.
 - Include SISSO-style derived candidates and FDE trend/frequency features in the same Top-32 competition.
+- Treat ICL context sample count as a search dimension. With the default `--num-train-samples 400`, probe larger SISSO candidates at 700 and 900 samples; the sampler caps to available labels when fewer are available.
 - Run baseline on all holdouts, then use the worst baseline holdout as quick-screen.
 - Do not early stop. Run until the requested time budget is essentially exhausted.
 - If two rounds do not improve clearly, backtrack to a prior high-value node and explore another path.

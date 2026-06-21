@@ -4,7 +4,7 @@ import numpy as np
 
 from soft_sensor_autoresearch.holdout import HoldoutInterval, HoldoutPlan
 from soft_sensor_autoresearch.model_runner import CandidateConfig, HoldoutRunResult
-from soft_sensor_autoresearch.search import SearchConfig, run_search
+from soft_sensor_autoresearch.search import SearchConfig, _initial_candidates, run_search
 
 
 def _holdouts() -> HoldoutPlan:
@@ -53,3 +53,20 @@ def test_run_search_baseline_all_holdouts_and_quick_screen(tmp_path):
     assert quick_screen_calls[0][1] == "h2"
     assert state.candidates[0].score >= state.candidates[-1].score
     assert (tmp_path / "report.html").exists()
+
+
+def test_initial_candidates_include_larger_context_sample_probes():
+    candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
+    sample_counts = {candidate.num_train_samples for candidate in candidates}
+
+    assert 400 in sample_counts
+    assert 700 in sample_counts
+    assert 900 in sample_counts
+
+
+def test_larger_context_sample_probes_run_before_slow_frequency_candidate():
+    candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
+    ids = [candidate.candidate_id for candidate in candidates]
+
+    assert ids.index("sisso_256_samples_700") < ids.index("frequency")
+    assert ids.index("sisso_256_samples_900") < ids.index("frequency")

@@ -70,13 +70,37 @@ def run_search(
 
 
 def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
-    return [
+    candidates = [
         CandidateConfig("sisso_256", 256, config.default_window_minutes, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
-        CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
-        CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
-        CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples, top_features_n=config.top_features_n),
-        CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True, top_features_n=config.top_features_n),
     ]
+    for sample_count in _larger_context_sample_counts(config.num_train_samples):
+        candidates.append(
+            CandidateConfig(
+                f"sisso_256_samples_{sample_count}",
+                256,
+                config.default_window_minutes,
+                "uniform",
+                sample_count,
+                top_features_n=config.top_features_n,
+            )
+        )
+    candidates.extend(
+        [
+            CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
+            CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
+            CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples, top_features_n=config.top_features_n),
+            CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True, top_features_n=config.top_features_n),
+        ]
+    )
+    return candidates
+
+
+def _larger_context_sample_counts(base: int) -> list[int]:
+    probes = [
+        min(900, int(round(base * 1.75))),
+        min(900, int(round(base * 2.25))),
+    ]
+    return sorted({value for value in probes if value > base})
 
 
 def _safe_run(

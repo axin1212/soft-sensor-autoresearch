@@ -25,6 +25,7 @@ python scripts/run_soft_sensor_autoresearch.py <data-file> <target-column>
 Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15.
 - `--num-train-samples <n>` controls the ICL context size; reduce this on memory-limited laptops.
+- The search also probes larger SISSO context sizes derived from `--num-train-samples`; with the default 400 it tries 700 and 900 before slow frequency candidates.
 - `--top-features-n <n>` controls how many ranked features enter the model; default is 32.
 - `--validation-fraction <fraction>` controls the total target-label fraction held out across robust windows; default is `0.30`.
 - `--window-minutes <minutes>` overrides the context window. When omitted, infer it from the dataset sampling interval.
