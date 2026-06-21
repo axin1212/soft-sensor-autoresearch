@@ -182,7 +182,11 @@ def _tpt_child_code() -> str:
     return textwrap.dedent(
         """
         from pathlib import Path
+        from datetime import datetime, timezone
+        import csv
+        import os
         import sys
+        import time
         import numpy as np
         import torch
         import tpt_tab.utils as tpt_utils
@@ -195,6 +199,38 @@ def _tpt_child_code() -> str:
         device = sys.argv[5]
         fit_mode = sys.argv[6]
         n_estimators = int(sys.argv[7])
+        resource_log_path = os.environ.get("SOFT_SENSOR_RESOURCE_LOG_PATH")
+        resource_start = float(os.environ.get("SOFT_SENSOR_RESOURCE_LOG_START_EPOCH", time.time()))
+
+        def _mps_memory_mb(name):
+            try:
+                if device != "mps" or not torch.backends.mps.is_available():
+                    return ""
+                value = getattr(torch.mps, name)()
+                return f"{float(value) / 1024 / 1024:.2f}"
+            except Exception:
+                return ""
+
+        def _log_resource_event(note):
+            if not resource_log_path:
+                return
+            now = time.time()
+            row = {
+                "timestamp": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+                "elapsed_s": f"{now - resource_start:.3f}",
+                "kind": "mps_event",
+                "root_pid": str(os.getpid()),
+                "pid_count": "1",
+                "cpu_percent_sum": "",
+                "rss_mb_sum": "",
+                "gpu_backend": device,
+                "mps_current_allocated_mb": _mps_memory_mb("current_allocated_memory"),
+                "mps_driver_allocated_mb": _mps_memory_mb("driver_allocated_memory"),
+                "note": note,
+            }
+            with open(resource_log_path, "a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(row))
+                writer.writerow(row)
 
         if device == "mps" and torch.backends.mps.is_available():
             tpt_utils._is_mps_supported = lambda: True
@@ -204,8 +240,11 @@ def _tpt_child_code() -> str:
             device=device,
             fit_mode=fit_mode,
         )
+        _log_resource_event("tpt_fit_start")
         model.fit(x_train, y_train)
+        _log_resource_event("tpt_fit_end")
         result = model.predict(x_test)
+        _log_resource_event("tpt_predict_end")
         np.save(pred_path, np.asarray(result.mean, dtype=np.float32))
         """
     )

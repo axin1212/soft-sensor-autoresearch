@@ -17,4 +17,6 @@ def test_cli_smoke(monkeypatch, capsys):
     rc = cli.main(["data.parquet", "target"])
 
     assert rc == 0
-    assert "report.html: /tmp/report.html" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "report.html: /tmp/report.html" in output
+    assert "resource_usage.csv: /tmp/resource_usage.csv" in output
