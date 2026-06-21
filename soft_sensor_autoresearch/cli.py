@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--time-budget-minutes", type=float, default=15.0)
     parser.add_argument("--num-train-samples", type=int, default=400)
     parser.add_argument("--top-features-n", type=int, default=32)
+    parser.add_argument("--validation-fraction", type=float, default=0.30)
     parser.add_argument("--window-minutes", type=int, default=None)
     parser.add_argument("--model-type", choices=("tabpfn3", "tpt"), default="tabpfn3")
     parser.add_argument("--tabpfn-device", default="cpu")
@@ -52,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         time_budget_minutes=args.time_budget_minutes,
         num_train_samples=args.num_train_samples,
         top_features_n=args.top_features_n,
+        validation_fraction=args.validation_fraction,
         window_minutes=args.window_minutes,
         model_type=args.model_type,
         tabpfn_device=args.tabpfn_device,
@@ -73,6 +75,7 @@ def run_autoresearch(
     time_budget_minutes: float = 15.0,
     num_train_samples: int = 400,
     top_features_n: int = 32,
+    validation_fraction: float = 0.30,
     window_minutes: int | None = None,
     model_type: str = "tabpfn3",
     tabpfn_device: str = "cpu",
@@ -111,7 +114,12 @@ def run_autoresearch(
         else:
             raise ValueError(f"unsupported model_type: {model_type}")
 
-    holdouts = build_holdout_plan(df, columns.time_column, columns.target_column)
+    holdouts = build_holdout_plan(
+        df,
+        columns.time_column,
+        columns.target_column,
+        validation_fraction=validation_fraction,
+    )
     artifacts = RunArtifacts.create(output_dir or data_file.parent)
 
     def runner(candidate, holdout):

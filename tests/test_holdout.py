@@ -26,6 +26,7 @@ def test_build_holdout_plan_returns_three_intervals_for_enough_labels():
     assert len(plan.intervals) == 3
     assert plan.confidence == "high"
     assert _label_sets_do_not_overlap(plan)
+    assert sum(len(interval.label_indices) for interval in plan.intervals) == 11
 
 
 def test_build_holdout_plan_degrades_to_two_intervals():
@@ -34,6 +35,7 @@ def test_build_holdout_plan_degrades_to_two_intervals():
     assert len(plan.intervals) == 2
     assert plan.confidence == "medium"
     assert _label_sets_do_not_overlap(plan)
+    assert sum(len(interval.label_indices) for interval in plan.intervals) == 5
 
 
 def test_build_holdout_plan_degrades_to_one_interval():
@@ -41,6 +43,14 @@ def test_build_holdout_plan_degrades_to_one_interval():
 
     assert len(plan.intervals) == 1
     assert plan.confidence == "low"
+    assert sum(len(interval.label_indices) for interval in plan.intervals) == 3
+
+
+def test_build_holdout_plan_uses_configurable_validation_fraction():
+    plan = build_holdout_plan(_frame(40), "timestamp", "target", validation_fraction=0.40)
+
+    assert len(plan.intervals) == 3
+    assert sum(len(interval.label_indices) for interval in plan.intervals) == 16
 
 
 def test_build_holdout_plan_fails_below_eight_labels():

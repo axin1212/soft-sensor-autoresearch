@@ -26,6 +26,7 @@ Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15.
 - `--num-train-samples <n>` controls the ICL context size; reduce this on memory-limited laptops.
 - `--top-features-n <n>` controls how many ranked features enter the model; default is 32.
+- `--validation-fraction <fraction>` controls the total target-label fraction held out across robust windows; default is `0.30`.
 - `--window-minutes <minutes>` overrides the context window. When omitted, infer it from the dataset sampling interval.
 - `--model-type <tabpfn3|tpt>` selects the FDE model path. Default is `tabpfn3`.
 - `--tabpfn-device <cpu|auto|mps|cuda>` controls TabPFN device; default is `cpu` for laptop stability.

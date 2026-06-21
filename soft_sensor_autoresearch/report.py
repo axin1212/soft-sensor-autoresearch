@@ -34,7 +34,7 @@ def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
         rows=rows,
         cols=holdout_count,
         subplot_titles=[
-            f"{candidate.candidate_id} / {holdout.holdout_name} R²={holdout.r2:.3f}"
+            f"{candidate.candidate_id} / {holdout.holdout_name} n={len(holdout.actual)} R²={holdout.r2:.3f}"
             for candidate in plot_candidates
             for holdout in candidate.holdouts
         ],
@@ -90,7 +90,10 @@ def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
 def _candidate_index(candidates: list[CandidateReport]) -> str:
     rows = []
     for rank, candidate in enumerate(candidates, start=1):
-        r2_values = ", ".join(f"{h.holdout_name}: R²={h.r2:.3f}" for h in candidate.holdouts)
+        r2_values = ", ".join(
+            f"{h.holdout_name}: n={len(h.actual)}, R²={h.r2:.3f}"
+            for h in candidate.holdouts
+        )
         detail = r2_values or html.escape(candidate.error or "")
         rows.append(
             "<tr>"
