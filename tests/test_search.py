@@ -70,3 +70,29 @@ def test_larger_context_sample_probes_run_before_slow_frequency_candidate():
 
     assert ids.index("sisso_256_samples_700") < ids.index("frequency")
     assert ids.index("sisso_256_samples_900") < ids.index("frequency")
+
+
+def test_zero_time_budget_runs_full_candidate_list(tmp_path):
+    calls: list[tuple[str, str]] = []
+
+    def fake_runner(config: CandidateConfig, holdout: HoldoutInterval) -> HoldoutRunResult:
+        calls.append((config.candidate_id, holdout.name))
+        return HoldoutRunResult(
+            candidate_id=config.candidate_id,
+            holdout_name=holdout.name,
+            status="ok",
+            actual=np.array([1.0, 2.0]),
+            predictions=np.array([1.0, 2.0]),
+            r2=0.5,
+            rmse=0.0,
+            selected_features=["f0"],
+        )
+
+    run_search(
+        _holdouts(),
+        SearchConfig(time_budget_seconds=0, report_path=tmp_path / "report.html"),
+        fake_runner,
+    )
+
+    candidate_ids = {call[0] for call in calls}
+    assert {candidate.candidate_id for candidate in _initial_candidates(SearchConfig(0, tmp_path / "report.html"))}.issubset(candidate_ids)

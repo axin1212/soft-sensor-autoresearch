@@ -92,6 +92,7 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
     for rank, candidate in enumerate(candidates, start=1):
         r2_values = ", ".join(_holdout_detail(h) for h in candidate.holdouts)
         detail = r2_values or html.escape(candidate.error or "")
+        selected_features = _selected_feature_detail(candidate)
         rows.append(
             "<tr>"
             f"<td>#{rank}</td>"
@@ -99,10 +100,11 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
             f"<td>{candidate.score:.4f}</td>"
             f"<td>{html.escape(candidate.status)}</td>"
             f"<td>{detail}</td>"
+            f"<td>{selected_features}</td>"
             "</tr>"
         )
     return (
-        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th>"
+        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th><th>Selected Features</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
@@ -114,3 +116,13 @@ def _holdout_detail(holdout: HoldoutRunResult) -> str:
     if holdout.error:
         return f"{name}: error: {html.escape(holdout.error)}"
     return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}"
+
+
+def _selected_feature_detail(candidate: CandidateReport) -> str:
+    by_holdout = []
+    for holdout in candidate.holdouts:
+        if not holdout.selected_features:
+            continue
+        features = ", ".join(html.escape(feature) for feature in holdout.selected_features)
+        by_holdout.append(f"{html.escape(holdout.holdout_name)}: {features}")
+    return "<br>".join(by_holdout)

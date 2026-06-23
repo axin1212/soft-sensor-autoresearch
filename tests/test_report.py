@@ -38,6 +38,8 @@ def test_write_report_contains_core_elements(tmp_path):
     assert "R²" in html
     assert "45-degree" in html
     assert "#1" in html
+    assert "Selected Features" in html
+    assert "f0" in html
     assert "boom" in html
 
 

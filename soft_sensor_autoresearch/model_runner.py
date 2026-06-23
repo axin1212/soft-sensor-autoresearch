@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Callable
 
 import numpy as np
@@ -55,6 +56,7 @@ def run_candidate_holdout(
     fde_builder: FdeFeatureBuilder,
     predictor_factory: PredictorFactory,
 ) -> HoldoutRunResult:
+    _progress(f"holdout_start candidate={config.candidate_id} holdout={holdout.name}")
     df, columns = _apply_candidate_features(df, columns, config)
     labels = df[df[columns.target_column].notna()].copy()
     label_times = pd.to_datetime(labels[columns.time_column])
@@ -74,11 +76,16 @@ def run_candidate_holdout(
     train_labels = context_labels.reset_index(drop=True).iloc[sampled_positions]
     holdout_labels = df.loc[holdout.label_indices]
 
+    _progress(f"features_train_start candidate={config.candidate_id} holdout={holdout.name} rows={len(train_labels)}")
     train_features = _build_features(df, columns, train_labels, config, fde_builder)
+    _progress(f"features_train_end candidate={config.candidate_id} holdout={holdout.name} shape={train_features.shape}")
+    _progress(f"features_test_start candidate={config.candidate_id} holdout={holdout.name} rows={len(holdout_labels)}")
     test_features = _build_features(df, columns, holdout_labels, config, fde_builder)
+    _progress(f"features_test_end candidate={config.candidate_id} holdout={holdout.name} shape={test_features.shape}")
     y_train = pd.to_numeric(train_labels[columns.target_column], errors="coerce")
     y_test = pd.to_numeric(holdout_labels[columns.target_column], errors="coerce").to_numpy(dtype=float)
 
+    _progress(f"feature_select_start candidate={config.candidate_id} holdout={holdout.name} k={config.top_features_n}")
     selected, _ = select_top_features_xgboost(
         train_features,
         y_train,
@@ -94,9 +101,16 @@ def run_candidate_holdout(
     )
     y_train_model, y_center, y_scale = _standardize_target(y_train.to_numpy(dtype=float))
 
+    _progress(f"feature_select_end candidate={config.candidate_id} holdout={holdout.name} selected={len(selected)}")
+    _progress(f"predictor_create_start candidate={config.candidate_id} holdout={holdout.name}")
     predictor = predictor_factory()
+    _progress(f"predictor_create_end candidate={config.candidate_id} holdout={holdout.name}")
+    _progress(f"predictor_fit_start candidate={config.candidate_id} holdout={holdout.name} train_shape={x_train_model.shape}")
     predictor.fit(x_train_model, y_train_model)
+    _progress(f"predictor_fit_end candidate={config.candidate_id} holdout={holdout.name}")
+    _progress(f"predictor_predict_start candidate={config.candidate_id} holdout={holdout.name} test_shape={x_test_model.shape}")
     raw_predictions = predictor.predict(x_test_model)
+    _progress(f"predictor_predict_end candidate={config.candidate_id} holdout={holdout.name}")
     predictions = _prediction_array(raw_predictions) * y_scale + y_center
 
     return HoldoutRunResult(
@@ -109,6 +123,12 @@ def run_candidate_holdout(
         rmse=rmse_np(y_test, predictions),
         selected_features=selected,
     )
+
+
+def _progress(message: str) -> None:
+    if os.environ.get("SOFT_SENSOR_PROGRESS", "1") == "0":
+        return
+    print(f"[soft-sensor-autoresearch] {message}", flush=True)
 
 
 def _build_features(

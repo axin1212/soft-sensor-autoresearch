@@ -38,8 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-fraction", type=float, default=0.30)
     parser.add_argument("--window-minutes", type=int, default=None)
     parser.add_argument("--model-type", choices=("tabpfn3", "tpt"), default="tabpfn3")
-    parser.add_argument("--tabpfn-device", default="cpu")
-    parser.add_argument("--tabpfn-fit-mode", default="low_memory")
+    parser.add_argument("--tabpfn-device", default="auto")
+    parser.add_argument("--tabpfn-fit-mode", default="fit_preprocessors")
+    parser.add_argument("--tabpfn-n-estimators", type=int, default=1)
     parser.add_argument("--tpt-device", default="mps")
     parser.add_argument("--tpt-fit-mode", default="fit_preprocessors")
     parser.add_argument("--tpt-n-estimators", type=int, default=1)
@@ -64,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         model_type=args.model_type,
         tabpfn_device=args.tabpfn_device,
         tabpfn_fit_mode=args.tabpfn_fit_mode,
+        tabpfn_n_estimators=args.tabpfn_n_estimators,
         tpt_device=args.tpt_device,
         tpt_fit_mode=args.tpt_fit_mode,
         tpt_n_estimators=args.tpt_n_estimators,
@@ -88,8 +90,9 @@ def run_autoresearch(
     validation_fraction: float = 0.30,
     window_minutes: int | None = None,
     model_type: str = "tabpfn3",
-    tabpfn_device: str = "cpu",
-    tabpfn_fit_mode: str = "low_memory",
+    tabpfn_device: str = "auto",
+    tabpfn_fit_mode: str = "fit_preprocessors",
+    tabpfn_n_estimators: int = 1,
     tpt_device: str = "mps",
     tpt_fit_mode: str = "fit_preprocessors",
     tpt_n_estimators: int = 1,
@@ -116,7 +119,11 @@ def run_autoresearch(
         fde_builder = FdeWindowFeatureBuilder()
     if predictor_factory is None:
         if model_type == "tabpfn3":
-            predictor_factory = load_tabpfn3_predictor_factory(device=tabpfn_device, fit_mode=tabpfn_fit_mode)
+            predictor_factory = load_tabpfn3_predictor_factory(
+                device=tabpfn_device,
+                fit_mode=tabpfn_fit_mode,
+                n_estimators=tabpfn_n_estimators,
+            )
         elif model_type == "tpt":
             predictor_factory = load_tpt_predictor_factory(
                 device=tpt_device,
