@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
     parser.add_argument("--include-frequency-candidate", action="store_true")
     parser.add_argument("--search-profile", choices=("baseline_first", "always_cse"), default="baseline_first")
-    parser.add_argument("--cse-min-best-worst-r2", type=float, default=-0.5)
+    parser.add_argument("--cse-min-best-worst-r2", type=float, default=0.0)
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -108,7 +108,7 @@ def run_autoresearch(
     resource_log_interval_seconds: float = 2.0,
     include_frequency_candidate: bool = False,
     search_profile: str = "baseline_first",
-    cse_min_best_worst_r2: float = -0.5,
+    cse_min_best_worst_r2: float = 0.0,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,

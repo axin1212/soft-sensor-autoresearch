@@ -23,7 +23,7 @@ class SearchConfig:
     random_state: int = 42
     include_frequency_candidate: bool = False
     search_profile: str = "baseline_first"
-    cse_min_best_worst_r2: float = -0.5
+    cse_min_best_worst_r2: float = 0.0
 
 
 CandidateRunner = Callable[[CandidateConfig, HoldoutInterval], HoldoutRunResult]
