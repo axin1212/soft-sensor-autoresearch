@@ -170,7 +170,7 @@ def run_autoresearch(
             run_search(
                 holdouts,
                 SearchConfig(
-                    time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
+                    time_budget_seconds=_time_budget_seconds(time_budget_minutes),
                     report_path=artifacts.report_path,
                     default_window_minutes=resolved_window_minutes,
                     num_train_samples=num_train_samples,
@@ -202,3 +202,9 @@ def _restore_env(name: str, previous: str | None) -> None:
         os.environ.pop(name, None)
     else:
         os.environ[name] = previous
+
+
+def _time_budget_seconds(time_budget_minutes: float) -> float:
+    if time_budget_minutes <= 0:
+        return 0
+    return max(1.0, time_budget_minutes * 60.0)

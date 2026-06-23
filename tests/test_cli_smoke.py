@@ -20,3 +20,9 @@ def test_cli_smoke(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "report.html: /tmp/report.html" in output
     assert "resource_usage.csv: /tmp/resource_usage.csv" in output
+
+
+def test_zero_time_budget_stays_unlimited():
+    assert cli._time_budget_seconds(0) == 0
+    assert cli._time_budget_seconds(0.0) == 0
+    assert cli._time_budget_seconds(0.5) == 30.0
