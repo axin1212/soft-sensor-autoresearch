@@ -38,8 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-fraction", type=float, default=0.30)
     parser.add_argument("--window-minutes", type=int, default=None)
     parser.add_argument("--model-type", choices=("tabpfn3", "tpt"), default="tabpfn3")
-    parser.add_argument("--tabpfn-device", default="cpu")
-    parser.add_argument("--tabpfn-fit-mode", default="low_memory")
+    parser.add_argument("--tabpfn-device", default="auto")
+    parser.add_argument("--tabpfn-fit-mode", default="fit_preprocessors")
+    parser.add_argument("--tabpfn-n-estimators", type=int, default=1)
     parser.add_argument("--tpt-device", default="mps")
     parser.add_argument("--tpt-fit-mode", default="fit_preprocessors")
     parser.add_argument("--tpt-n-estimators", type=int, default=1)
@@ -47,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--resource-log-interval-seconds", type=float, default=2.0)
     parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
+    parser.add_argument("--include-frequency-candidate", action="store_true")
+    parser.add_argument("--search-profile", choices=("baseline_first", "always_cse"), default="baseline_first")
+    parser.add_argument("--cse-min-best-worst-r2", type=float, default=0.0)
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -64,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         model_type=args.model_type,
         tabpfn_device=args.tabpfn_device,
         tabpfn_fit_mode=args.tabpfn_fit_mode,
+        tabpfn_n_estimators=args.tabpfn_n_estimators,
         tpt_device=args.tpt_device,
         tpt_fit_mode=args.tpt_fit_mode,
         tpt_n_estimators=args.tpt_n_estimators,
@@ -71,6 +76,9 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=args.output_dir,
         resource_log=args.resource_log,
         resource_log_interval_seconds=args.resource_log_interval_seconds,
+        include_frequency_candidate=args.include_frequency_candidate,
+        search_profile=args.search_profile,
+        cse_min_best_worst_r2=args.cse_min_best_worst_r2,
         open_report=args.open_report,
     )
     print(f"report.html: {report_path}")
@@ -88,8 +96,9 @@ def run_autoresearch(
     validation_fraction: float = 0.30,
     window_minutes: int | None = None,
     model_type: str = "tabpfn3",
-    tabpfn_device: str = "cpu",
-    tabpfn_fit_mode: str = "low_memory",
+    tabpfn_device: str = "auto",
+    tabpfn_fit_mode: str = "fit_preprocessors",
+    tabpfn_n_estimators: int = 1,
     tpt_device: str = "mps",
     tpt_fit_mode: str = "fit_preprocessors",
     tpt_n_estimators: int = 1,
@@ -97,6 +106,9 @@ def run_autoresearch(
     output_dir: Path | None = None,
     resource_log: bool = True,
     resource_log_interval_seconds: float = 2.0,
+    include_frequency_candidate: bool = False,
+    search_profile: str = "baseline_first",
+    cse_min_best_worst_r2: float = 0.0,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,
@@ -116,7 +128,11 @@ def run_autoresearch(
         fde_builder = FdeWindowFeatureBuilder()
     if predictor_factory is None:
         if model_type == "tabpfn3":
-            predictor_factory = load_tabpfn3_predictor_factory(device=tabpfn_device, fit_mode=tabpfn_fit_mode)
+            predictor_factory = load_tabpfn3_predictor_factory(
+                device=tabpfn_device,
+                fit_mode=tabpfn_fit_mode,
+                n_estimators=tabpfn_n_estimators,
+            )
         elif model_type == "tpt":
             predictor_factory = load_tpt_predictor_factory(
                 device=tpt_device,
@@ -163,11 +179,14 @@ def run_autoresearch(
             run_search(
                 holdouts,
                 SearchConfig(
-                    time_budget_seconds=max(1.0, time_budget_minutes * 60.0),
+                    time_budget_seconds=_time_budget_seconds(time_budget_minutes),
                     report_path=artifacts.report_path,
                     default_window_minutes=resolved_window_minutes,
                     num_train_samples=num_train_samples,
                     top_features_n=top_features_n,
+                    include_frequency_candidate=include_frequency_candidate,
+                    search_profile=search_profile,
+                    cse_min_best_worst_r2=cse_min_best_worst_r2,
                 ),
                 runner,
             )
@@ -195,3 +214,9 @@ def _restore_env(name: str, previous: str | None) -> None:
         os.environ.pop(name, None)
     else:
         os.environ[name] = previous
+
+
+def _time_budget_seconds(time_budget_minutes: float) -> float:
+    if time_budget_minutes <= 0:
+        return 0
+    return max(1.0, time_budget_minutes * 60.0)

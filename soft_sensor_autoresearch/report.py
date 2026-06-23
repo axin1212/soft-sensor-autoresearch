@@ -92,6 +92,7 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
     for rank, candidate in enumerate(candidates, start=1):
         r2_values = ", ".join(_holdout_detail(h) for h in candidate.holdouts)
         detail = r2_values or html.escape(candidate.error or "")
+        selected_features = _selected_feature_detail(candidate)
         rows.append(
             "<tr>"
             f"<td>#{rank}</td>"
@@ -99,10 +100,11 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
             f"<td>{candidate.score:.4f}</td>"
             f"<td>{html.escape(candidate.status)}</td>"
             f"<td>{detail}</td>"
+            f"<td>{selected_features}</td>"
             "</tr>"
         )
     return (
-        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th>"
+        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th><th>Selected Features</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
@@ -113,4 +115,26 @@ def _holdout_detail(holdout: HoldoutRunResult) -> str:
     name = html.escape(holdout.holdout_name)
     if holdout.error:
         return f"{name}: error: {html.escape(holdout.error)}"
-    return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}"
+    actual = np.asarray(holdout.actual, dtype=float)
+    predicted = np.asarray(holdout.predictions, dtype=float)
+    mask = np.isfinite(actual) & np.isfinite(predicted)
+    if not mask.any():
+        return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}, RMSE=nan, MAE=nan, y_std=nan"
+    error = actual[mask] - predicted[mask]
+    mae = float(np.mean(np.abs(error)))
+    y_std = float(np.std(actual[mask], ddof=1)) if mask.sum() > 1 else float("nan")
+    rmse_to_std = holdout.rmse / y_std if np.isfinite(y_std) and y_std > 0 else float("nan")
+    return (
+        f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}, "
+        f"RMSE={holdout.rmse:.4f}, MAE={mae:.4f}, y_std={y_std:.4f}, RMSE/std={rmse_to_std:.2f}"
+    )
+
+
+def _selected_feature_detail(candidate: CandidateReport) -> str:
+    by_holdout = []
+    for holdout in candidate.holdouts:
+        if not holdout.selected_features:
+            continue
+        features = ", ".join(html.escape(feature) for feature in holdout.selected_features)
+        by_holdout.append(f"{html.escape(holdout.holdout_name)}: {features}")
+    return "<br>".join(by_holdout)
