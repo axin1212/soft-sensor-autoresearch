@@ -64,12 +64,23 @@ def test_initial_candidates_include_larger_context_sample_probes():
     assert 900 in sample_counts
 
 
-def test_larger_context_sample_probes_run_before_slow_frequency_candidate():
+def test_larger_context_sample_probes_run_before_coverage_candidate():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
     ids = [candidate.candidate_id for candidate in candidates]
 
-    assert ids.index("sisso_256_samples_700") < ids.index("frequency")
-    assert ids.index("sisso_256_samples_900") < ids.index("frequency")
+    assert ids.index("sisso_256_samples_700") < ids.index("coverage")
+    assert ids.index("sisso_256_samples_900") < ids.index("coverage")
+
+
+def test_frequency_candidate_is_opt_in():
+    default_ids = [candidate.candidate_id for candidate in _initial_candidates(SearchConfig(1, "report.html"))]
+    opt_in_ids = [
+        candidate.candidate_id
+        for candidate in _initial_candidates(SearchConfig(1, "report.html", include_frequency_candidate=True))
+    ]
+
+    assert "frequency" not in default_ids
+    assert "frequency" in opt_in_ids
 
 
 def test_zero_time_budget_runs_full_candidate_list(tmp_path):

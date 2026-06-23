@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--resource-log-interval-seconds", type=float, default=2.0)
     parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
+    parser.add_argument("--include-frequency-candidate", action="store_true")
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -73,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=args.output_dir,
         resource_log=args.resource_log,
         resource_log_interval_seconds=args.resource_log_interval_seconds,
+        include_frequency_candidate=args.include_frequency_candidate,
         open_report=args.open_report,
     )
     print(f"report.html: {report_path}")
@@ -100,6 +102,7 @@ def run_autoresearch(
     output_dir: Path | None = None,
     resource_log: bool = True,
     resource_log_interval_seconds: float = 2.0,
+    include_frequency_candidate: bool = False,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,
@@ -175,6 +178,7 @@ def run_autoresearch(
                     default_window_minutes=resolved_window_minutes,
                     num_train_samples=num_train_samples,
                     top_features_n=top_features_n,
+                    include_frequency_candidate=include_frequency_candidate,
                 ),
                 runner,
             )

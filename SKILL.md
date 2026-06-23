@@ -41,6 +41,7 @@ Useful options:
 - Resource usage logging is enabled by default and writes `resource_usage.csv` next to `report.html`.
 - `--resource-log-interval-seconds <seconds>` controls process-tree CPU/RSS sampling; default is `2.0`.
 - `--no-resource-log` disables the default resource log.
+- `--include-frequency-candidate` enables the tsfresh/frequency candidate. It is off by default because it can expand to tens of thousands of features and dominate long runs.
 
 Model weights:
 - `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.

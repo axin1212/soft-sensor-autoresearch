@@ -21,6 +21,7 @@ class SearchConfig:
     top_features_n: int = 32
     num_train_samples: int = 400
     random_state: int = 42
+    include_frequency_candidate: bool = False
 
 
 CandidateRunner = Callable[[CandidateConfig, HoldoutInterval], HoldoutRunResult]
@@ -101,9 +102,20 @@ def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
             CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("coverage", 0, config.default_window_minutes, "coverage", config.num_train_samples, top_features_n=config.top_features_n),
-            CandidateConfig("frequency", 0, config.default_window_minutes, "uniform", config.num_train_samples, True, top_features_n=config.top_features_n),
         ]
     )
+    if config.include_frequency_candidate:
+        candidates.append(
+            CandidateConfig(
+                "frequency",
+                0,
+                config.default_window_minutes,
+                "uniform",
+                config.num_train_samples,
+                True,
+                top_features_n=config.top_features_n,
+            )
+        )
     return candidates
 
 
