@@ -46,6 +46,12 @@ Useful options:
 - `--cse-min-best-worst-r2 <r2>` controls the baseline-first guard; default is `0.0`. If the best low-risk candidate's worst holdout R² is below this threshold, CSE/SISSO candidates are skipped so the run surfaces a data/feature/holdout problem instead of expanding bad features.
 - `--include-frequency-candidate` enables the tsfresh/frequency candidate. It is off by default because it can expand to tens of thousands of features and dominate long runs.
 
+Negative-R² triage:
+- Treat a strongly negative R² from all low-risk candidates as a diagnostic failure, not as a prompt to add CSE/SISSO features.
+- Read the per-holdout RMSE, MAE, target standard deviation, and RMSE/std in the report. If target variance is tiny, R² can look extreme even when absolute moisture error is small.
+- Before expanding the feature search, compare holdout target distributions, batch coverage, and whether one holdout is an out-of-distribution batch/time segment.
+- Prefer raw, trend/rolling, and optionally frequency features first; only enable CSE/SISSO after a nonnegative low-risk worst-holdout R² or an explicit user override.
+
 Model weights:
 - `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.
 - `--model-type tpt` uses FDE `TPTTabRegressor` with `$FDE_TPT_WEIGHTS_DIR/TPT_tab/model.ckpt`.

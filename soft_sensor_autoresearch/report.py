@@ -115,7 +115,19 @@ def _holdout_detail(holdout: HoldoutRunResult) -> str:
     name = html.escape(holdout.holdout_name)
     if holdout.error:
         return f"{name}: error: {html.escape(holdout.error)}"
-    return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}"
+    actual = np.asarray(holdout.actual, dtype=float)
+    predicted = np.asarray(holdout.predictions, dtype=float)
+    mask = np.isfinite(actual) & np.isfinite(predicted)
+    if not mask.any():
+        return f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}, RMSE=nan, MAE=nan, y_std=nan"
+    error = actual[mask] - predicted[mask]
+    mae = float(np.mean(np.abs(error)))
+    y_std = float(np.std(actual[mask], ddof=1)) if mask.sum() > 1 else float("nan")
+    rmse_to_std = holdout.rmse / y_std if np.isfinite(y_std) and y_std > 0 else float("nan")
+    return (
+        f"{name}: n={len(holdout.actual)}, R²={holdout.r2:.3f}, "
+        f"RMSE={holdout.rmse:.4f}, MAE={mae:.4f}, y_std={y_std:.4f}, RMSE/std={rmse_to_std:.2f}"
+    )
 
 
 def _selected_feature_detail(candidate: CandidateReport) -> str:

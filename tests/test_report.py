@@ -36,6 +36,10 @@ def test_write_report_contains_core_elements(tmp_path):
     html = path.read_text()
     assert "plotly" in html.lower()
     assert "R²" in html
+    assert "RMSE=0.1000" in html
+    assert "MAE=0.1000" in html
+    assert "y_std=" in html
+    assert "RMSE/std=" in html
     assert "45-degree" in html
     assert "#1" in html
     assert "Selected Features" in html
