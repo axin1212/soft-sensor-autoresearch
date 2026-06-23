@@ -41,6 +41,9 @@ Useful options:
 - Resource usage logging is enabled by default and writes `resource_usage.csv` next to `report.html`.
 - `--resource-log-interval-seconds <seconds>` controls process-tree CPU/RSS sampling; default is `2.0`.
 - `--no-resource-log` disables the default resource log.
+- `--search-profile baseline_first` is the default. It first evaluates an identity baseline using the dataset's existing columns, then low-risk trend/window/coverage candidates, and only then CSE/SISSO candidates.
+- `--search-profile always_cse` always runs CSE/SISSO after the low-risk candidates.
+- `--cse-min-best-worst-r2 <r2>` controls the baseline-first guard; default is `-0.5`. If the best low-risk candidate's worst holdout R² is below this threshold, CSE/SISSO candidates are skipped so the run surfaces a data/feature/holdout problem instead of expanding bad features.
 - `--include-frequency-candidate` enables the tsfresh/frequency candidate. It is off by default because it can expand to tens of thousands of features and dominate long runs.
 
 Model weights:

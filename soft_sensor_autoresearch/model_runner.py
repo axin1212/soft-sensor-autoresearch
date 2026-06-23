@@ -30,6 +30,7 @@ class CandidateConfig:
     include_frequency: bool = False
     random_state: int = 42
     top_features_n: int = 32
+    feature_mode: str = "trend"
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,10 @@ def _build_features(
     config: CandidateConfig,
     fde_builder: FdeFeatureBuilder,
 ) -> pd.DataFrame:
+    if config.feature_mode == "identity":
+        return target_rows[columns.feature_columns].reset_index(drop=True)
+    if config.feature_mode != "trend":
+        raise ValueError(f"unsupported feature_mode: {config.feature_mode}")
     request = WindowFeatureRequest(
         data=df,
         time_column=columns.time_column,

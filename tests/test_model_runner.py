@@ -16,6 +16,11 @@ class FakeFdeBuilder:
         return pd.DataFrame({"f0": values, "f1": values * 2})
 
 
+class FailingFdeBuilder:
+    def build_feature_matrix(self, request: WindowFeatureRequest, extraction: str) -> pd.DataFrame:
+        raise AssertionError("identity mode must not call the FDE window builder")
+
+
 class FakePredictor:
     def fit(self, x, y):
         self.mean_ = float(np.mean(y))
@@ -62,3 +67,41 @@ def test_run_candidate_holdout_returns_metrics_and_predictions():
     assert result.actual.shape == (3,)
     assert result.selected_features
     assert result.r2 <= 1.0
+
+
+def test_identity_feature_mode_uses_existing_columns_without_window_builder():
+    rows = 30
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=rows, freq="min"),
+            "target": [float(i) if i % 2 == 0 else None for i in range(rows)],
+            "x": np.arange(rows, dtype=float),
+            "x_lag": np.arange(rows, dtype=float) * 2,
+        }
+    )
+    holdout = HoldoutInterval(
+        name="h1",
+        start_time=frame.loc[20, "timestamp"],
+        end_time=frame.loc[24, "timestamp"],
+        label_indices=[20, 22, 24],
+    )
+    config = CandidateConfig(
+        candidate_id="identity",
+        max_derived_features=0,
+        window_minutes=30,
+        context_policy="uniform",
+        num_train_samples=5,
+        feature_mode="identity",
+    )
+
+    result = run_candidate_holdout(
+        frame,
+        ColumnContract("timestamp", "target", ["x", "x_lag"]),
+        holdout,
+        config,
+        FailingFdeBuilder(),
+        predictor_factory=FakePredictor,
+    )
+
+    assert result.status == "ok"
+    assert result.selected_features

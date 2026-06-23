@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resource-log-interval-seconds", type=float, default=2.0)
     parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
     parser.add_argument("--include-frequency-candidate", action="store_true")
+    parser.add_argument("--search-profile", choices=("baseline_first", "always_cse"), default="baseline_first")
+    parser.add_argument("--cse-min-best-worst-r2", type=float, default=-0.5)
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -75,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         resource_log=args.resource_log,
         resource_log_interval_seconds=args.resource_log_interval_seconds,
         include_frequency_candidate=args.include_frequency_candidate,
+        search_profile=args.search_profile,
+        cse_min_best_worst_r2=args.cse_min_best_worst_r2,
         open_report=args.open_report,
     )
     print(f"report.html: {report_path}")
@@ -103,6 +107,8 @@ def run_autoresearch(
     resource_log: bool = True,
     resource_log_interval_seconds: float = 2.0,
     include_frequency_candidate: bool = False,
+    search_profile: str = "baseline_first",
+    cse_min_best_worst_r2: float = -0.5,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,
@@ -179,6 +185,8 @@ def run_autoresearch(
                     num_train_samples=num_train_samples,
                     top_features_n=top_features_n,
                     include_frequency_candidate=include_frequency_candidate,
+                    search_profile=search_profile,
+                    cse_min_best_worst_r2=cse_min_best_worst_r2,
                 ),
                 runner,
             )
