@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import math
 import time
@@ -9,7 +9,7 @@ import os
 
 from soft_sensor_autoresearch.holdout import HoldoutInterval, HoldoutPlan
 from soft_sensor_autoresearch.model_runner import CandidateConfig, HoldoutRunResult
-from soft_sensor_autoresearch.report import CandidateReport, ReportState, write_report
+from soft_sensor_autoresearch.report import CandidateReport, ReportMetadata, ReportState, write_report
 from soft_sensor_autoresearch.scoring import candidate_score
 
 
@@ -22,8 +22,8 @@ class SearchConfig:
     num_train_samples: int = 400
     random_state: int = 42
     include_frequency_candidate: bool = False
-    search_profile: str = "baseline_first"
-    cse_min_best_worst_r2: float = 0.0
+    forecast_horizons: tuple[int, ...] = (0,)
+    report_metadata: ReportMetadata | None = None
 
 
 CandidateRunner = Callable[[CandidateConfig, HoldoutInterval], HoldoutRunResult]
@@ -42,7 +42,47 @@ def run_search(
     )
     reports: list[CandidateReport] = []
 
-    baseline = CandidateConfig(
+    horizons = _forecast_horizons(config)
+    suffix_ids = len(horizons) > 1
+    for horizon_step in horizons:
+        if time.monotonic() >= deadline:
+            break
+        baseline = _baseline_candidate(config, horizon_step, suffix_ids)
+        _progress(f"candidate_start id={baseline.candidate_id} holdouts={len(holdouts.intervals)}")
+        baseline_results = [_safe_run(runner, baseline, holdout) for holdout in holdouts.intervals]
+        reports.append(_candidate_report(baseline, baseline_results, len(holdouts.intervals)))
+        write_report(config.report_path, ReportState(_rank(reports), metadata=config.report_metadata))
+        _progress(f"candidate_end id={baseline.candidate_id}")
+
+        worst = min(baseline_results, key=lambda result: result.r2).holdout_name
+        quick_holdout = next(holdout for holdout in holdouts.intervals if holdout.name == worst)
+
+        for candidate in _low_risk_candidates_for_horizon(config, horizon_step, suffix_ids):
+            if time.monotonic() >= deadline:
+                break
+            candidate_report = _run_screened_candidate(runner, candidate, quick_holdout, holdouts, baseline_results, deadline)
+            reports.append(candidate_report)
+            write_report(config.report_path, ReportState(_rank(reports), metadata=config.report_metadata))
+            _progress(f"candidate_end id={candidate.candidate_id}")
+
+    final_state = ReportState(_rank(reports), metadata=config.report_metadata)
+    write_report(config.report_path, final_state)
+    _progress("search_end")
+    return final_state
+
+
+def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
+    horizons = _forecast_horizons(config)
+    suffix_ids = len(horizons) > 1
+    return [
+        candidate
+        for horizon_step in horizons
+        for candidate in _low_risk_candidates_for_horizon(config, horizon_step, suffix_ids)
+    ]
+
+
+def _baseline_candidate(config: SearchConfig, horizon_step: int, suffix_id: bool) -> CandidateConfig:
+    candidate = CandidateConfig(
         candidate_id="baseline",
         max_derived_features=0,
         window_minutes=config.default_window_minutes,
@@ -53,75 +93,22 @@ def run_search(
         top_features_n=config.top_features_n,
         feature_mode="identity",
     )
-    _progress(f"candidate_start id={baseline.candidate_id} holdouts={len(holdouts.intervals)}")
-    baseline_results = [_safe_run(runner, baseline, holdout) for holdout in holdouts.intervals]
-    reports.append(_candidate_report(baseline, baseline_results, len(holdouts.intervals)))
-    write_report(config.report_path, ReportState(_rank(reports)))
-    _progress(f"candidate_end id={baseline.candidate_id}")
-
-    worst = min(baseline_results, key=lambda result: result.r2).holdout_name
-    quick_holdout = next(holdout for holdout in holdouts.intervals if holdout.name == worst)
-
-    low_risk_reports: list[CandidateReport] = []
-    for candidate in _low_risk_candidates(config):
-        if time.monotonic() >= deadline:
-            break
-        candidate_report = _run_screened_candidate(runner, candidate, quick_holdout, holdouts, baseline_results, deadline)
-        reports.append(candidate_report)
-        low_risk_reports.append(candidate_report)
-        write_report(config.report_path, ReportState(_rank(reports)))
-        _progress(f"candidate_end id={candidate.candidate_id}")
-
-    best_low_risk_worst = max(
-        (_worst_result_r2(report.holdouts) for report in [reports[0], *low_risk_reports]),
-        default=float("nan"),
-    )
-    if config.search_profile == "baseline_first" and best_low_risk_worst < config.cse_min_best_worst_r2:
-        _progress(
-            "skip_cse reason=low_risk_worst_r2_below_threshold "
-            f"best_low_risk_worst_r2={best_low_risk_worst:.4f} threshold={config.cse_min_best_worst_r2:.4f}"
-        )
-    else:
-        for candidate in _cse_candidates(config):
-            if time.monotonic() >= deadline:
-                break
-            candidate_report = _run_screened_candidate(runner, candidate, quick_holdout, holdouts, baseline_results, deadline)
-            reports.append(candidate_report)
-            write_report(config.report_path, ReportState(_rank(reports)))
-            _progress(f"candidate_end id={candidate.candidate_id}")
-
-    final_state = ReportState(_rank(reports))
-    write_report(config.report_path, final_state)
-    _progress("search_end")
-    return final_state
+    return _with_horizon(candidate, horizon_step, suffix_id)
 
 
-def _initial_candidates(config: SearchConfig) -> list[CandidateConfig]:
-    return [*_low_risk_candidates(config), *_cse_candidates(config)]
+def _low_risk_candidates_for_horizon(
+    config: SearchConfig,
+    horizon_step: int,
+    suffix_id: bool,
+) -> list[CandidateConfig]:
+    candidates = _base_low_risk_candidates(config)
+    return [_with_horizon(candidate, horizon_step, suffix_id) for candidate in candidates]
 
 
-def _low_risk_candidates(config: SearchConfig) -> list[CandidateConfig]:
+def _base_low_risk_candidates(config: SearchConfig) -> list[CandidateConfig]:
     candidates = []
     candidates.extend(
         [
-            CandidateConfig(
-                "identity_recent",
-                0,
-                config.default_window_minutes,
-                "recent",
-                config.num_train_samples,
-                top_features_n=config.top_features_n,
-                feature_mode="identity",
-            ),
-            CandidateConfig(
-                "identity_coverage",
-                0,
-                config.default_window_minutes,
-                "coverage",
-                config.num_train_samples,
-                top_features_n=config.top_features_n,
-                feature_mode="identity",
-            ),
             CandidateConfig("trend_default", 0, config.default_window_minutes, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
@@ -143,30 +130,18 @@ def _low_risk_candidates(config: SearchConfig) -> list[CandidateConfig]:
     return candidates
 
 
-def _cse_candidates(config: SearchConfig) -> list[CandidateConfig]:
-    candidates = [
-        CandidateConfig("sisso_256", 256, config.default_window_minutes, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
-    ]
-    for sample_count in _larger_context_sample_counts(config.num_train_samples):
-        candidates.append(
-            CandidateConfig(
-                f"sisso_256_samples_{sample_count}",
-                256,
-                config.default_window_minutes,
-                "uniform",
-                sample_count,
-                top_features_n=config.top_features_n,
-            )
-        )
-    return candidates
+def _with_horizon(candidate: CandidateConfig, horizon_step: int, suffix_id: bool) -> CandidateConfig:
+    candidate_id = f"{candidate.candidate_id}_h+{horizon_step}" if suffix_id else candidate.candidate_id
+    return replace(candidate, candidate_id=candidate_id, horizon_step=horizon_step)
 
 
-def _larger_context_sample_counts(base: int) -> list[int]:
-    probes = [
-        min(900, int(round(base * 1.75))),
-        min(900, int(round(base * 2.25))),
-    ]
-    return sorted({value for value in probes if value > base})
+def _forecast_horizons(config: SearchConfig) -> tuple[int, ...]:
+    values = tuple(sorted(set(config.forecast_horizons)))
+    if not values:
+        return (0,)
+    if any(value < 0 for value in values):
+        raise ValueError("forecast_horizons must be nonnegative")
+    return values
 
 
 def _run_screened_candidate(
@@ -213,6 +188,7 @@ def _safe_run(
             r2=float("nan"),
             rmse=float("nan"),
             selected_features=[],
+            horizon_step=candidate.horizon_step,
             error=repr(exc),
         )
 
@@ -224,7 +200,7 @@ def _candidate_report(
 ) -> CandidateReport:
     score = candidate_score([result.r2 for result in results], total_windows=total_windows)
     status = "complete" if len(results) == total_windows else "partial"
-    return CandidateReport(candidate_id=config.candidate_id, score=score, status=status, holdouts=results)
+    return CandidateReport(candidate_id=config.candidate_id, score=score, status=status, holdouts=results, horizon_step=config.horizon_step)
 
 
 def _rank(reports: list[CandidateReport]) -> list[CandidateReport]:

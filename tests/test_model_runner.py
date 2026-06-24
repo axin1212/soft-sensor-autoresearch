@@ -105,3 +105,42 @@ def test_identity_feature_mode_uses_existing_columns_without_window_builder():
 
     assert result.status == "ok"
     assert result.selected_features
+
+
+def test_horizon_step_uses_past_anchor_features_for_future_targets():
+    rows = 20
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=rows, freq="min"),
+            "target": np.arange(rows, dtype=float),
+            "x": np.arange(rows, dtype=float) * 10.0,
+        }
+    )
+    holdout = HoldoutInterval(
+        name="h1",
+        start_time=frame.loc[10, "timestamp"],
+        end_time=frame.loc[12, "timestamp"],
+        label_indices=[10, 11, 12],
+    )
+    config = CandidateConfig(
+        candidate_id="identity_h+2",
+        max_derived_features=0,
+        window_minutes=30,
+        context_policy="uniform",
+        num_train_samples=5,
+        feature_mode="identity",
+        horizon_step=2,
+    )
+
+    result = run_candidate_holdout(
+        frame,
+        ColumnContract("timestamp", "target", ["x"]),
+        holdout,
+        config,
+        FailingFdeBuilder(),
+        predictor_factory=FakePredictor,
+    )
+
+    assert result.horizon_step == 2
+    assert result.actual.tolist() == [10.0, 11.0, 12.0]
+    assert result.predictions.shape == (3,)
