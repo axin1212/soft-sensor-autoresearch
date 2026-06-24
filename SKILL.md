@@ -1,6 +1,6 @@
 ---
 name: soft-sensor-autoresearch
-description: Run local offline soft-sensor AutoResearch with FDE TabPFN3, SISSO-style derived features, mean R-squared candidate ranking, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run the soft-sensor AutoResearch skill.
+description: Run local offline current-point soft-sensor AutoResearch with FDE TabPFN3, low-risk identity/trend/window/coverage features, mean R-squared candidate ranking, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run current-point soft-sensor AutoResearch.
 ---
 
 # Soft Sensor AutoResearch
@@ -10,6 +10,10 @@ Use this skill only after explicit invocation.
 Required user inputs:
 - Dataset file path (`.csv` or `.parquet`)
 - Target column name
+
+Scope:
+- This skill is for current-point soft sensing only: features ending at time `t` predict the target at time `t`.
+- Do not use this skill for future prediction (`t+n`) or lag/dead-time search. Use `predictor-autoresearch` for future-prediction tasks.
 
 Before running, check local FDE/model availability. Do not silently fall back to XGBoost if the requested FDE model is unavailable.
 
@@ -25,7 +29,7 @@ python scripts/run_soft_sensor_autoresearch.py <data-file> <target-column>
 Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15. Use `0` to remove the time cap and run the full finite candidate list.
 - `--num-train-samples <n>` controls the ICL context size; reduce this on memory-limited laptops.
-- The search probes context sampling before complex features: uniform identity baseline, identity with recent/coverage context, then low-risk trend/window/coverage candidates. Larger SISSO context sizes are tried only after the baseline-first CSE gate passes.
+- The search probes context sampling before window features: uniform identity baseline, identity with recent/coverage context, then low-risk trend/window/coverage candidates.
 - `--top-features-n <n>` controls how many ranked features enter the model; default is 32.
 - `--validation-fraction <fraction>` controls the total target-label fraction held out across robust windows; default is `0.30`.
 - `--window-minutes <minutes>` overrides the context window. When omitted, infer it from the dataset sampling interval.
@@ -41,17 +45,14 @@ Useful options:
 - Resource usage logging is enabled by default and writes `resource_usage.csv` next to `report.html`.
 - `--resource-log-interval-seconds <seconds>` controls process-tree CPU/RSS sampling; default is `2.0`.
 - `--no-resource-log` disables the default resource log.
-- `--search-profile baseline_first` is the default. It first evaluates an identity baseline using the dataset's existing columns, then identity recent/coverage context candidates, then low-risk trend/window/coverage candidates, and only then CSE/SISSO candidates.
-- `--search-profile always_cse` always runs CSE/SISSO after the low-risk candidates.
-- `--cse-min-best-worst-r2 <r2>` controls the baseline-first guard; default is `0.0`. If the best low-risk candidate's worst holdout R² is below this threshold, CSE/SISSO candidates are skipped so the run surfaces a data/feature/holdout problem instead of expanding bad features.
 - `--include-frequency-candidate` enables the tsfresh/frequency candidate. It is off by default because it can expand to tens of thousands of features and dominate long runs.
 
 Negative-R² triage:
-- Treat a strongly negative R² from all low-risk candidates as a diagnostic failure, not as a prompt to add CSE/SISSO features.
+- Treat a strongly negative R² from all low-risk candidates as a diagnostic failure, not as a prompt to add synthetic formula features.
 - First audit preprocessing: remove leakage columns and duplicate/synchronized tags, check missing-value handling, confirm the natural sampling level, and compare raw/downsampled aggregations before expanding feature families.
 - Read the per-holdout RMSE, MAE, target standard deviation, and RMSE/std in the report. If target variance is tiny, R² can look extreme even when absolute moisture error is small.
 - Before expanding the feature search, compare holdout target distributions, batch coverage, and whether one holdout is an out-of-distribution batch/time segment.
-- Prefer raw identity, recent/coverage context, trend/rolling, and optionally frequency features first; only enable CSE/SISSO after a nonnegative low-risk worst-holdout R² or an explicit user override.
+- Prefer raw identity, recent/coverage context, trend/rolling, and optionally frequency features.
 
 Model weights:
 - `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.

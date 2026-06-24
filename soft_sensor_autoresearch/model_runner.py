@@ -9,7 +9,6 @@ import pandas as pd
 
 from soft_sensor_autoresearch.context_sampling import sample_context_indices
 from soft_sensor_autoresearch.data_contracts import ColumnContract
-from soft_sensor_autoresearch.derived_features import generate_derived_features, select_derived_features
 from soft_sensor_autoresearch.feature_pool import (
     FdeFeatureBuilder,
     WindowFeatureRequest,
@@ -23,7 +22,6 @@ from soft_sensor_autoresearch.scoring import r2_score_np, rmse_np
 @dataclass(frozen=True)
 class CandidateConfig:
     candidate_id: str
-    max_derived_features: int
     window_minutes: int
     context_policy: str
     num_train_samples: int = 400
@@ -58,7 +56,6 @@ def run_candidate_holdout(
     predictor_factory: PredictorFactory,
 ) -> HoldoutRunResult:
     _progress(f"holdout_start candidate={config.candidate_id} holdout={holdout.name}")
-    df, columns = _apply_candidate_features(df, columns, config)
     labels = df[df[columns.target_column].notna()].copy()
     label_times = pd.to_datetime(labels[columns.time_column])
     context_labels = labels[
@@ -152,33 +149,6 @@ def _build_features(
         include_frequency=config.include_frequency,
     )
     return build_window_feature_pool(request, fde_builder).features
-
-
-def _apply_candidate_features(
-    df: pd.DataFrame,
-    columns: ColumnContract,
-    config: CandidateConfig,
-) -> tuple[pd.DataFrame, ColumnContract]:
-    if config.max_derived_features <= 0:
-        return df, columns
-    derived, derived_columns = generate_derived_features(df, columns.feature_columns, columns.time_column)
-    if not derived_columns:
-        return df, columns
-    merged = pd.concat([df.reset_index(drop=True), derived.reset_index(drop=True)], axis=1)
-    selected = select_derived_features(
-        merged,
-        columns.target_column,
-        derived_columns,
-        max_features=config.max_derived_features,
-    )
-    return (
-        merged,
-        ColumnContract(
-            time_column=columns.time_column,
-            target_column=columns.target_column,
-            feature_columns=[*columns.feature_columns, *selected],
-        ),
-    )
 
 
 def _prediction_array(raw_predictions: object) -> np.ndarray:

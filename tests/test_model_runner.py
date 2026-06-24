@@ -47,7 +47,6 @@ def test_run_candidate_holdout_returns_metrics_and_predictions():
     )
     config = CandidateConfig(
         candidate_id="c1",
-        max_derived_features=0,
         window_minutes=30,
         context_policy="uniform",
         num_train_samples=5,
@@ -87,7 +86,6 @@ def test_identity_feature_mode_uses_existing_columns_without_window_builder():
     )
     config = CandidateConfig(
         candidate_id="identity",
-        max_derived_features=0,
         window_minutes=30,
         context_policy="uniform",
         num_train_samples=5,

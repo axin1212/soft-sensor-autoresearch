@@ -57,24 +57,25 @@ def test_run_search_baseline_all_holdouts_and_quick_screen(tmp_path):
     assert (tmp_path / "report.html").exists()
 
 
-def test_initial_candidates_include_larger_context_sample_probes():
+def test_initial_candidates_keep_fixed_context_sample_count():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
     sample_counts = {candidate.num_train_samples for candidate in candidates}
 
-    assert 400 in sample_counts
-    assert 700 in sample_counts
-    assert 900 in sample_counts
+    assert sample_counts == {400}
 
 
-def test_low_risk_candidates_run_before_cse_candidates():
+def test_initial_candidates_are_current_point_soft_sensor_candidates():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
     ids = [candidate.candidate_id for candidate in candidates]
 
-    assert ids.index("identity_recent") < ids.index("trend_default")
-    assert ids.index("identity_coverage") < ids.index("trend_default")
-    assert ids.index("trend_default") < ids.index("sisso_256")
-    assert ids.index("coverage") < ids.index("sisso_256")
-    assert ids.index("sisso_256") < ids.index("sisso_256_samples_700")
+    assert ids == [
+        "identity_recent",
+        "identity_coverage",
+        "trend_default",
+        "window_short",
+        "window_long",
+        "coverage",
+    ]
 
 
 def test_low_risk_context_candidates_keep_identity_features():
@@ -123,29 +124,3 @@ def test_zero_time_budget_runs_full_candidate_list(tmp_path):
     candidate_ids = {call[0] for call in calls}
     assert {candidate.candidate_id for candidate in _initial_candidates(SearchConfig(0, tmp_path / "report.html"))}.issubset(candidate_ids)
 
-
-def test_baseline_first_skips_cse_when_low_risk_scores_are_abnormally_bad(tmp_path):
-    calls: list[tuple[str, str]] = []
-
-    def fake_runner(config: CandidateConfig, holdout: HoldoutInterval) -> HoldoutRunResult:
-        calls.append((config.candidate_id, holdout.name))
-        return HoldoutRunResult(
-            candidate_id=config.candidate_id,
-            holdout_name=holdout.name,
-            status="ok",
-            actual=np.array([1.0, 2.0]),
-            predictions=np.array([2.0, 1.0]),
-            r2=-2.0,
-            rmse=1.0,
-            selected_features=["f0"],
-        )
-
-    run_search(
-        _holdouts(),
-        SearchConfig(time_budget_seconds=0, report_path=tmp_path / "report.html", cse_min_best_worst_r2=-0.5),
-        fake_runner,
-    )
-
-    candidate_ids = {call[0] for call in calls}
-    assert "trend_default" in candidate_ids
-    assert "sisso_256" not in candidate_ids

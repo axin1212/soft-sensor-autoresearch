@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 
-import pandas as pd
-
 
 @dataclass(frozen=True)
 class RunArtifacts:
@@ -26,18 +24,10 @@ class RunArtifacts:
     def resource_usage_path(self) -> Path:
         return self.run_dir / "resource_usage.csv"
 
-    @property
-    def best_derived_features_path(self) -> Path:
-        return self.run_dir / "best_derived_features.parquet"
-
     def candidate_dir(self, candidate_id: str) -> Path:
         path = self.run_dir / "candidates" / _safe_name(candidate_id)
         path.mkdir(parents=True, exist_ok=True)
         return path
-
-    def save_best_derived_features(self, frame: pd.DataFrame) -> Path:
-        frame.to_parquet(self.best_derived_features_path)
-        return self.best_derived_features_path
 
 
 def _safe_name(value: str) -> str:
