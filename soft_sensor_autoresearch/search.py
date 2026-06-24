@@ -104,6 +104,24 @@ def _low_risk_candidates(config: SearchConfig) -> list[CandidateConfig]:
     candidates = []
     candidates.extend(
         [
+            CandidateConfig(
+                "identity_recent",
+                0,
+                config.default_window_minutes,
+                "recent",
+                config.num_train_samples,
+                top_features_n=config.top_features_n,
+                feature_mode="identity",
+            ),
+            CandidateConfig(
+                "identity_coverage",
+                0,
+                config.default_window_minutes,
+                "coverage",
+                config.num_train_samples,
+                top_features_n=config.top_features_n,
+                feature_mode="identity",
+            ),
             CandidateConfig("trend_default", 0, config.default_window_minutes, "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("window_short", 0, max(5, config.default_window_minutes // 2), "uniform", config.num_train_samples, top_features_n=config.top_features_n),
             CandidateConfig("window_long", 0, config.default_window_minutes * 2, "uniform", config.num_train_samples, top_features_n=config.top_features_n),

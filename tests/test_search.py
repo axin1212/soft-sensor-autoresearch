@@ -52,7 +52,7 @@ def test_run_search_baseline_all_holdouts_and_quick_screen(tmp_path):
     quick_screen_calls = [call for call in calls if call[0] != "baseline"]
     assert quick_screen_calls
     assert quick_screen_calls[0][1] == "h2"
-    assert quick_screen_calls[0][0] == "trend_default"
+    assert quick_screen_calls[0][0] == "identity_recent"
     assert state.candidates[0].score >= state.candidates[-1].score
     assert (tmp_path / "report.html").exists()
 
@@ -70,9 +70,21 @@ def test_low_risk_candidates_run_before_cse_candidates():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
     ids = [candidate.candidate_id for candidate in candidates]
 
+    assert ids.index("identity_recent") < ids.index("trend_default")
+    assert ids.index("identity_coverage") < ids.index("trend_default")
     assert ids.index("trend_default") < ids.index("sisso_256")
     assert ids.index("coverage") < ids.index("sisso_256")
     assert ids.index("sisso_256") < ids.index("sisso_256_samples_700")
+
+
+def test_low_risk_context_candidates_keep_identity_features():
+    candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+
+    assert by_id["identity_recent"].feature_mode == "identity"
+    assert by_id["identity_recent"].context_policy == "recent"
+    assert by_id["identity_coverage"].feature_mode == "identity"
+    assert by_id["identity_coverage"].context_policy == "coverage"
 
 
 def test_frequency_candidate_is_opt_in():
