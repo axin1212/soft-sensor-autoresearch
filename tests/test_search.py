@@ -52,39 +52,35 @@ def test_run_search_baseline_all_holdouts_and_quick_screen(tmp_path):
     quick_screen_calls = [call for call in calls if call[0] != "baseline"]
     assert quick_screen_calls
     assert quick_screen_calls[0][1] == "h2"
-    assert quick_screen_calls[0][0] == "identity_recent"
+    assert quick_screen_calls[0][0] == "trend_default"
     assert state.candidates[0].score >= state.candidates[-1].score
     assert (tmp_path / "report.html").exists()
 
 
-def test_initial_candidates_include_larger_context_sample_probes():
-    candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
-    sample_counts = {candidate.num_train_samples for candidate in candidates}
-
-    assert 400 in sample_counts
-    assert 700 in sample_counts
-    assert 900 in sample_counts
-
-
-def test_low_risk_candidates_run_before_cse_candidates():
+def test_initial_candidates_exclude_sisso_derived_candidates():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
     ids = [candidate.candidate_id for candidate in candidates]
 
-    assert ids.index("identity_recent") < ids.index("trend_default")
-    assert ids.index("identity_coverage") < ids.index("trend_default")
-    assert ids.index("trend_default") < ids.index("sisso_256")
-    assert ids.index("coverage") < ids.index("sisso_256")
-    assert ids.index("sisso_256") < ids.index("sisso_256_samples_700")
+    assert all("sisso" not in candidate_id for candidate_id in ids)
+    assert all(candidate.max_derived_features == 0 for candidate in candidates)
 
 
-def test_low_risk_context_candidates_keep_identity_features():
+def test_initial_candidates_are_low_risk_only_by_default():
     candidates = _initial_candidates(SearchConfig(time_budget_seconds=1, report_path="report.html"))
-    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    ids = [candidate.candidate_id for candidate in candidates]
 
-    assert by_id["identity_recent"].feature_mode == "identity"
-    assert by_id["identity_recent"].context_policy == "recent"
-    assert by_id["identity_coverage"].feature_mode == "identity"
-    assert by_id["identity_coverage"].context_policy == "coverage"
+    assert ids == ["trend_default", "window_short", "window_long", "coverage"]
+
+
+def test_initial_candidates_expand_across_forecast_horizons():
+    candidates = _initial_candidates(
+        SearchConfig(time_budget_seconds=1, report_path="report.html", forecast_horizons=(0, 2))
+    )
+    ids = [candidate.candidate_id for candidate in candidates]
+
+    assert "trend_default_h+0" in ids
+    assert "trend_default_h+2" in ids
+    assert {candidate.horizon_step for candidate in candidates} == {0, 2}
 
 
 def test_frequency_candidate_is_opt_in():
@@ -124,7 +120,7 @@ def test_zero_time_budget_runs_full_candidate_list(tmp_path):
     assert {candidate.candidate_id for candidate in _initial_candidates(SearchConfig(0, tmp_path / "report.html"))}.issubset(candidate_ids)
 
 
-def test_baseline_first_skips_cse_when_low_risk_scores_are_abnormally_bad(tmp_path):
+def test_run_search_does_not_run_sisso_candidates(tmp_path):
     calls: list[tuple[str, str]] = []
 
     def fake_runner(config: CandidateConfig, holdout: HoldoutInterval) -> HoldoutRunResult:
@@ -142,10 +138,10 @@ def test_baseline_first_skips_cse_when_low_risk_scores_are_abnormally_bad(tmp_pa
 
     run_search(
         _holdouts(),
-        SearchConfig(time_budget_seconds=0, report_path=tmp_path / "report.html", cse_min_best_worst_r2=-0.5),
+        SearchConfig(time_budget_seconds=0, report_path=tmp_path / "report.html"),
         fake_runner,
     )
 
     candidate_ids = {call[0] for call in calls}
     assert "trend_default" in candidate_ids
-    assert "sisso_256" not in candidate_ids
+    assert all("sisso" not in candidate_id for candidate_id in candidate_ids)

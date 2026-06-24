@@ -1,6 +1,6 @@
 ---
 name: soft-sensor-autoresearch
-description: Run local offline soft-sensor AutoResearch with FDE TabPFN3, SISSO-style derived features, mean R-squared candidate ranking, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run the soft-sensor AutoResearch skill.
+description: Run local offline soft-sensor AutoResearch with FDE TabPFN3, low-risk trend/window/coverage features, mean R-squared candidate ranking, and an interactive Plotly fitability report. Use only when the user explicitly names $soft-sensor-autoresearch or asks to run the soft-sensor AutoResearch skill.
 ---
 
 # Soft Sensor AutoResearch
@@ -25,10 +25,10 @@ python scripts/run_soft_sensor_autoresearch.py <data-file> <target-column>
 Useful options:
 - `--time-budget-minutes <minutes>` controls the search budget; default is 15. Use `0` to remove the time cap and run the full finite candidate list.
 - `--num-train-samples <n>` controls the ICL context size; reduce this on memory-limited laptops.
-- The search probes context sampling before complex features: uniform identity baseline, identity with recent/coverage context, then low-risk trend/window/coverage candidates. Larger SISSO context sizes are tried only after the baseline-first CSE gate passes.
 - `--top-features-n <n>` controls how many ranked features enter the model; default is 32.
 - `--validation-fraction <fraction>` controls the total target-label fraction held out across robust windows; default is `0.30`.
 - `--window-minutes <minutes>` overrides the context window. When omitted, infer it from the dataset sampling interval.
+- `--forecast-horizons <steps>` evaluates future-target horizons. Use `0` for same-time prediction, `0:10` for h=0 through h=10, or comma lists such as `0,1,3,6,10`. A horizon step is one dataset sampling step, so h=10 on 10-minute data is 100 minutes ahead.
 - `--model-type <tabpfn3|tpt>` selects the FDE model path. Default is `tabpfn3`.
 - `--tabpfn-device <cpu|auto|mps|cuda>` controls TabPFN device; default is `auto`, preferring MPS when PyTorch reports it is available. On Apple Silicon, `auto` fails fast when PyTorch is built with MPS but the runtime cannot see Metal devices; pass `cpu` explicitly only when CPU fallback is intended.
 - `--tabpfn-fit-mode <mode>` controls TabPFN preprocessing/cache mode; default is `fit_preprocessors` for stable local MPS validation.
@@ -41,17 +41,25 @@ Useful options:
 - Resource usage logging is enabled by default and writes `resource_usage.csv` next to `report.html`.
 - `--resource-log-interval-seconds <seconds>` controls process-tree CPU/RSS sampling; default is `2.0`.
 - `--no-resource-log` disables the default resource log.
-- `--search-profile baseline_first` is the default. It first evaluates an identity baseline using the dataset's existing columns, then identity recent/coverage context candidates, then low-risk trend/window/coverage candidates, and only then CSE/SISSO candidates.
-- `--search-profile always_cse` always runs CSE/SISSO after the low-risk candidates.
-- `--cse-min-best-worst-r2 <r2>` controls the baseline-first guard; default is `0.0`. If the best low-risk candidate's worst holdout R² is below this threshold, CSE/SISSO candidates are skipped so the run surfaces a data/feature/holdout problem instead of expanding bad features.
+- The default search evaluates an identity baseline using the dataset's existing columns, then trend/window/coverage candidates.
 - `--include-frequency-candidate` enables the tsfresh/frequency candidate. It is off by default because it can expand to tens of thousands of features and dominate long runs.
 
+Report header:
+- `report.html` begins with a `Run Parameters` section. Check this first before interpreting model scores.
+- The section records the target tag, data file, model type, inferred or overridden window size, ICL training sample count, top feature count, validation fraction, forecast horizons, frequency-candidate setting, FDE root, and model-specific runtime parameters such as device, fit mode, and estimator count.
+- Candidate rows record their effective horizon, while the header records the shared ICL training sample count and other run-level parameters. Compare candidate scores together with these parameters instead of reading R² alone.
+
+Forecast horizon interpretation:
+- h=0 uses the feature window ending at t to predict the target at t.
+- h>0 uses the feature window ending at t-h to predict the target at t. This keeps holdout target time ranges fixed across horizons and makes R²/RMSE across h=0..N comparable for lag estimation.
+- Training context excludes rows whose feature anchor time or future target time falls inside the holdout interval, so future-target evaluation does not leak holdout-window information into training.
+- Compare mean R², worst holdout R², RMSE, and MAE by horizon. A later horizon outperforming h=0 can indicate usable early-prediction signal at that lead time; validate against target autocorrelation and domain causality before calling it process dead time.
+
 Negative-R² triage:
-- Treat a strongly negative R² from all low-risk candidates as a diagnostic failure, not as a prompt to add CSE/SISSO features.
-- First audit preprocessing: remove leakage columns and duplicate/synchronized tags, check missing-value handling, confirm the natural sampling level, and compare raw/downsampled aggregations before expanding feature families.
+- Treat a strongly negative R² from all low-risk candidates as a diagnostic failure, not as a prompt to expand synthetic formula features.
 - Read the per-holdout RMSE, MAE, target standard deviation, and RMSE/std in the report. If target variance is tiny, R² can look extreme even when absolute moisture error is small.
 - Before expanding the feature search, compare holdout target distributions, batch coverage, and whether one holdout is an out-of-distribution batch/time segment.
-- Prefer raw identity, recent/coverage context, trend/rolling, and optionally frequency features first; only enable CSE/SISSO after a nonnegative low-risk worst-holdout R² or an explicit user override.
+- Prefer raw, trend/rolling, and optionally frequency features. Do not use SISSO-style synthetic feature candidates for this skill.
 
 Model weights:
 - `--model-type tabpfn3` uses FDE foundation TabPFN3 regressor weights under `weights/tabpfn3/*regressor*.ckpt`.

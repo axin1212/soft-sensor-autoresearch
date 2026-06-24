@@ -9,7 +9,6 @@ import pandas as pd
 
 from soft_sensor_autoresearch.context_sampling import sample_context_indices
 from soft_sensor_autoresearch.data_contracts import ColumnContract
-from soft_sensor_autoresearch.derived_features import generate_derived_features, select_derived_features
 from soft_sensor_autoresearch.feature_pool import (
     FdeFeatureBuilder,
     WindowFeatureRequest,
@@ -31,6 +30,7 @@ class CandidateConfig:
     random_state: int = 42
     top_features_n: int = 32
     feature_mode: str = "trend"
+    horizon_step: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,7 @@ class HoldoutRunResult:
     r2: float
     rmse: float
     selected_features: list[str]
+    horizon_step: int = 0
     error: str | None = None
 
 
@@ -57,25 +58,33 @@ def run_candidate_holdout(
     fde_builder: FdeFeatureBuilder,
     predictor_factory: PredictorFactory,
 ) -> HoldoutRunResult:
-    _progress(f"holdout_start candidate={config.candidate_id} holdout={holdout.name}")
-    df, columns = _apply_candidate_features(df, columns, config)
-    labels = df[df[columns.target_column].notna()].copy()
-    label_times = pd.to_datetime(labels[columns.time_column])
-    context_labels = labels[
+    _progress(f"holdout_start candidate={config.candidate_id} holdout={holdout.name} horizon={config.horizon_step}")
+    label_pairs = _aligned_label_pairs(df, columns, config.horizon_step)
+    target_times = pd.to_datetime(label_pairs[_TARGET_TIME_COLUMN])
+    anchor_times = pd.to_datetime(label_pairs[columns.time_column])
+    context_pairs = label_pairs[
         ~(
-            (label_times >= holdout.start_time)
-            & (label_times <= holdout.end_time)
+            (target_times >= holdout.start_time)
+            & (target_times <= holdout.end_time)
+        )
+        & ~(
+            (anchor_times >= holdout.start_time)
+            & (anchor_times <= holdout.end_time)
         )
     ]
     sampled_positions = sample_context_indices(
-        pd.to_datetime(context_labels[columns.time_column]).reset_index(drop=True),
+        pd.to_datetime(context_pairs[_TARGET_TIME_COLUMN]).reset_index(drop=True),
         holdout,
         policy=config.context_policy,
         n=config.num_train_samples,
         random_state=config.random_state,
     )
-    train_labels = context_labels.reset_index(drop=True).iloc[sampled_positions]
-    holdout_labels = df.loc[holdout.label_indices]
+    train_labels = context_pairs.reset_index(drop=True).iloc[sampled_positions]
+    holdout_labels = label_pairs[
+        label_pairs[_TARGET_INDEX_COLUMN].isin(set(holdout.label_indices))
+    ].reset_index(drop=True)
+    if holdout_labels.empty:
+        raise ValueError(f"no horizon-aligned labels for holdout={holdout.name} horizon={config.horizon_step}")
 
     _progress(f"features_train_start candidate={config.candidate_id} holdout={holdout.name} rows={len(train_labels)}")
     train_features = _build_features(df, columns, train_labels, config, fde_builder)
@@ -83,8 +92,8 @@ def run_candidate_holdout(
     _progress(f"features_test_start candidate={config.candidate_id} holdout={holdout.name} rows={len(holdout_labels)}")
     test_features = _build_features(df, columns, holdout_labels, config, fde_builder)
     _progress(f"features_test_end candidate={config.candidate_id} holdout={holdout.name} shape={test_features.shape}")
-    y_train = pd.to_numeric(train_labels[columns.target_column], errors="coerce")
-    y_test = pd.to_numeric(holdout_labels[columns.target_column], errors="coerce").to_numpy(dtype=float)
+    y_train = pd.to_numeric(train_labels[_TARGET_VALUE_COLUMN], errors="coerce")
+    y_test = pd.to_numeric(holdout_labels[_TARGET_VALUE_COLUMN], errors="coerce").to_numpy(dtype=float)
 
     _progress(f"feature_select_start candidate={config.candidate_id} holdout={holdout.name} k={config.top_features_n}")
     selected, _ = select_top_features_xgboost(
@@ -123,7 +132,40 @@ def run_candidate_holdout(
         r2=r2_score_np(y_test, predictions),
         rmse=rmse_np(y_test, predictions),
         selected_features=selected,
+        horizon_step=config.horizon_step,
     )
+
+
+_TARGET_VALUE_COLUMN = "__target_value"
+_TARGET_TIME_COLUMN = "__target_time"
+_TARGET_INDEX_COLUMN = "__target_index"
+_SOURCE_INDEX_COLUMN = "__source_index"
+
+
+def _aligned_label_pairs(
+    df: pd.DataFrame,
+    columns: ColumnContract,
+    horizon_step: int,
+) -> pd.DataFrame:
+    if horizon_step < 0:
+        raise ValueError("horizon_step must be nonnegative")
+    work = df.copy()
+    work[columns.time_column] = pd.to_datetime(work[columns.time_column], errors="coerce")
+    work[_SOURCE_INDEX_COLUMN] = work.index
+    work = work[work[columns.time_column].notna()].sort_values(columns.time_column).reset_index(drop=True)
+    target_values = pd.to_numeric(work[columns.target_column], errors="coerce")
+    target_positions = np.flatnonzero(target_values.notna().to_numpy())
+    target_positions = target_positions[target_positions >= horizon_step]
+    if len(target_positions) == 0:
+        return pd.DataFrame(columns=[*work.columns, _TARGET_VALUE_COLUMN, _TARGET_TIME_COLUMN, _TARGET_INDEX_COLUMN])
+
+    anchor_positions = target_positions - horizon_step
+    anchors = work.iloc[anchor_positions].copy().reset_index(drop=True)
+    targets = work.iloc[target_positions].reset_index(drop=True)
+    anchors[_TARGET_VALUE_COLUMN] = pd.to_numeric(targets[columns.target_column], errors="coerce").to_numpy(dtype=float)
+    anchors[_TARGET_TIME_COLUMN] = pd.to_datetime(targets[columns.time_column]).to_numpy(dtype="datetime64[ns]")
+    anchors[_TARGET_INDEX_COLUMN] = targets[_SOURCE_INDEX_COLUMN].map(int).to_numpy()
+    return anchors
 
 
 def _progress(message: str) -> None:
@@ -152,33 +194,6 @@ def _build_features(
         include_frequency=config.include_frequency,
     )
     return build_window_feature_pool(request, fde_builder).features
-
-
-def _apply_candidate_features(
-    df: pd.DataFrame,
-    columns: ColumnContract,
-    config: CandidateConfig,
-) -> tuple[pd.DataFrame, ColumnContract]:
-    if config.max_derived_features <= 0:
-        return df, columns
-    derived, derived_columns = generate_derived_features(df, columns.feature_columns, columns.time_column)
-    if not derived_columns:
-        return df, columns
-    merged = pd.concat([df.reset_index(drop=True), derived.reset_index(drop=True)], axis=1)
-    selected = select_derived_features(
-        merged,
-        columns.target_column,
-        derived_columns,
-        max_features=config.max_derived_features,
-    )
-    return (
-        merged,
-        ColumnContract(
-            time_column=columns.time_column,
-            target_column=columns.target_column,
-            feature_columns=[*columns.feature_columns, *selected],
-        ),
-    )
 
 
 def _prediction_array(raw_predictions: object) -> np.ndarray:

@@ -17,12 +17,34 @@ class CandidateReport:
     score: float
     status: str
     holdouts: list[HoldoutRunResult] = field(default_factory=list)
+    horizon_step: int = 0
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class ReportMetadata:
+    target_column: str
+    data_file: str
+    model_type: str
+    default_window_minutes: int
+    num_train_samples: int
+    top_features_n: int
+    validation_fraction: float
+    forecast_horizons: tuple[int, ...]
+    include_frequency_candidate: bool
+    tabpfn_device: str | None = None
+    tabpfn_fit_mode: str | None = None
+    tabpfn_n_estimators: int | None = None
+    tpt_device: str | None = None
+    tpt_fit_mode: str | None = None
+    tpt_n_estimators: int | None = None
+    fde_root: str | None = None
 
 
 @dataclass(frozen=True)
 class ReportState:
     candidates: list[CandidateReport]
+    metadata: ReportMetadata | None = None
 
 
 def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
@@ -34,10 +56,11 @@ def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
         rows=rows,
         cols=holdout_count,
         subplot_titles=[
-            f"{candidate.candidate_id} / {holdout.holdout_name} n={len(holdout.actual)} R²={holdout.r2:.3f}"
-            for candidate in plot_candidates
+            _subplot_title(rank, candidate, holdout)
+            for rank, candidate in enumerate(plot_candidates, start=1)
             for holdout in candidate.holdouts
         ],
+        vertical_spacing=_vertical_spacing(rows),
     )
 
     for row, candidate in enumerate(plot_candidates, start=1):
@@ -74,17 +97,83 @@ def write_report(path: Path, state: ReportState, top_n: int = 20) -> Path:
             fig.update_xaxes(title_text="Actual", row=row, col=col)
             fig.update_yaxes(title_text="Predicted", row=row, col=col)
 
-    fig.update_layout(height=max(360, rows * 320), showlegend=False, title_text="Soft Sensor AutoResearch")
+    fig.update_annotations(font_size=11, yshift=6)
+    fig.update_layout(
+        height=max(420, rows * 460),
+        margin={"t": 100, "r": 36, "b": 72, "l": 72},
+        showlegend=False,
+        title_text="Soft Sensor AutoResearch",
+        title={"y": 0.995},
+    )
     body = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    metadata = _metadata_table(state.metadata)
     index = _candidate_index(ranked)
     path.write_text(
         "<!doctype html><html><head><meta charset='utf-8'><title>Soft Sensor AutoResearch</title>"
         "</head><body><h1>Soft Sensor AutoResearch</h1>"
         "<p>Actual vs predicted plots include a 45-degree reference line.</p>"
-        f"{index}{body}</body></html>",
+        f"{metadata}{index}{body}</body></html>",
         encoding="utf-8",
     )
     return path
+
+
+def _metadata_table(metadata: ReportMetadata | None) -> str:
+    if metadata is None:
+        return ""
+    rows = [
+        ("Target Tag", metadata.target_column),
+        ("Data File", metadata.data_file),
+        ("Model Type", metadata.model_type),
+        ("Default Window Minutes", str(metadata.default_window_minutes)),
+        ("ICL Train Samples", str(metadata.num_train_samples)),
+        ("Top Features", str(metadata.top_features_n)),
+        ("Validation Fraction", f"{metadata.validation_fraction:.2f}"),
+        ("Forecast Horizons", ", ".join(str(value) for value in metadata.forecast_horizons)),
+        ("Include Frequency Candidate", str(metadata.include_frequency_candidate)),
+    ]
+    if metadata.model_type == "tabpfn3":
+        rows.extend(
+            [
+                ("TabPFN Device", metadata.tabpfn_device or ""),
+                ("TabPFN Fit Mode", metadata.tabpfn_fit_mode or ""),
+                ("TabPFN Estimators", "" if metadata.tabpfn_n_estimators is None else str(metadata.tabpfn_n_estimators)),
+            ]
+        )
+    if metadata.model_type == "tpt":
+        rows.extend(
+            [
+                ("TPT Device", metadata.tpt_device or ""),
+                ("TPT Fit Mode", metadata.tpt_fit_mode or ""),
+                ("TPT Estimators", "" if metadata.tpt_n_estimators is None else str(metadata.tpt_n_estimators)),
+            ]
+        )
+    if metadata.fde_root:
+        rows.append(("FDE Root", metadata.fde_root))
+    rendered = "".join(
+        f"<tr><th>{html.escape(key)}</th><td>{html.escape(value)}</td></tr>"
+        for key, value in rows
+    )
+    return f"<section><h2>Run Parameters</h2><table><tbody>{rendered}</tbody></table></section>"
+
+
+def _subplot_title(rank: int, candidate: CandidateReport, holdout: HoldoutRunResult) -> str:
+    prefix = f"#{rank}"
+    if candidate.horizon_step:
+        prefix = f"{prefix} · h+{candidate.horizon_step}"
+    return f"{prefix} · {_short_label(holdout.holdout_name, 18)}<br>R²={holdout.r2:.3f}"
+
+
+def _short_label(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[: max(1, max_chars - 1)] + "…"
+
+
+def _vertical_spacing(rows: int) -> float:
+    if rows <= 1:
+        return 0.08
+    return min(0.08, max(0.035, 0.28 / rows))
 
 
 def _candidate_index(candidates: list[CandidateReport]) -> str:
@@ -97,6 +186,7 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
             "<tr>"
             f"<td>#{rank}</td>"
             f"<td>{html.escape(candidate.candidate_id)}</td>"
+            f"<td>h+{candidate.horizon_step}</td>"
             f"<td>{candidate.score:.4f}</td>"
             f"<td>{html.escape(candidate.status)}</td>"
             f"<td>{detail}</td>"
@@ -104,7 +194,7 @@ def _candidate_index(candidates: list[CandidateReport]) -> str:
             "</tr>"
         )
     return (
-        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Mean R²</th><th>Status</th><th>R² / Error</th><th>Selected Features</th>"
+        "<table><thead><tr><th>Rank</th><th>Candidate</th><th>Horizon</th><th>Mean R²</th><th>Status</th><th>R² / Error</th><th>Selected Features</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"

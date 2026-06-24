@@ -21,6 +21,7 @@ from soft_sensor_autoresearch.fde_bridge import (
 )
 from soft_sensor_autoresearch.holdout import build_holdout_plan
 from soft_sensor_autoresearch.model_runner import run_candidate_holdout
+from soft_sensor_autoresearch.report import ReportMetadata
 from soft_sensor_autoresearch.resource_logging import ResourceMonitor
 from soft_sensor_autoresearch.search import SearchConfig, run_search
 
@@ -37,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-features-n", type=int, default=32)
     parser.add_argument("--validation-fraction", type=float, default=0.30)
     parser.add_argument("--window-minutes", type=int, default=None)
+    parser.add_argument("--forecast-horizons", type=_parse_forecast_horizons, default=(0,))
     parser.add_argument("--model-type", choices=("tabpfn3", "tpt"), default="tabpfn3")
     parser.add_argument("--tabpfn-device", default="auto")
     parser.add_argument("--tabpfn-fit-mode", default="fit_preprocessors")
@@ -49,8 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resource-log-interval-seconds", type=float, default=2.0)
     parser.add_argument("--no-resource-log", action="store_false", dest="resource_log", default=True)
     parser.add_argument("--include-frequency-candidate", action="store_true")
-    parser.add_argument("--search-profile", choices=("baseline_first", "always_cse"), default="baseline_first")
-    parser.add_argument("--cse-min-best-worst-r2", type=float, default=0.0)
     parser.add_argument("--open", action="store_true", dest="open_report")
     return parser
 
@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         top_features_n=args.top_features_n,
         validation_fraction=args.validation_fraction,
         window_minutes=args.window_minutes,
+        forecast_horizons=args.forecast_horizons,
         model_type=args.model_type,
         tabpfn_device=args.tabpfn_device,
         tabpfn_fit_mode=args.tabpfn_fit_mode,
@@ -77,8 +78,6 @@ def main(argv: list[str] | None = None) -> int:
         resource_log=args.resource_log,
         resource_log_interval_seconds=args.resource_log_interval_seconds,
         include_frequency_candidate=args.include_frequency_candidate,
-        search_profile=args.search_profile,
-        cse_min_best_worst_r2=args.cse_min_best_worst_r2,
         open_report=args.open_report,
     )
     print(f"report.html: {report_path}")
@@ -95,6 +94,7 @@ def run_autoresearch(
     top_features_n: int = 32,
     validation_fraction: float = 0.30,
     window_minutes: int | None = None,
+    forecast_horizons: tuple[int, ...] = (0,),
     model_type: str = "tabpfn3",
     tabpfn_device: str = "auto",
     tabpfn_fit_mode: str = "fit_preprocessors",
@@ -107,8 +107,6 @@ def run_autoresearch(
     resource_log: bool = True,
     resource_log_interval_seconds: float = 2.0,
     include_frequency_candidate: bool = False,
-    search_profile: str = "baseline_first",
-    cse_min_best_worst_r2: float = 0.0,
     open_report: bool = False,
     fde_builder=None,
     predictor_factory=None,
@@ -185,8 +183,25 @@ def run_autoresearch(
                     num_train_samples=num_train_samples,
                     top_features_n=top_features_n,
                     include_frequency_candidate=include_frequency_candidate,
-                    search_profile=search_profile,
-                    cse_min_best_worst_r2=cse_min_best_worst_r2,
+                    forecast_horizons=forecast_horizons,
+                    report_metadata=_build_report_metadata(
+                        data_file=data_file,
+                        target_column=target_column,
+                        model_type=model_type,
+                        resolved_window_minutes=resolved_window_minutes,
+                        num_train_samples=num_train_samples,
+                        top_features_n=top_features_n,
+                        validation_fraction=validation_fraction,
+                        forecast_horizons=forecast_horizons,
+                        include_frequency_candidate=include_frequency_candidate,
+                        tabpfn_device=tabpfn_device,
+                        tabpfn_fit_mode=tabpfn_fit_mode,
+                        tabpfn_n_estimators=tabpfn_n_estimators,
+                        tpt_device=tpt_device,
+                        tpt_fit_mode=tpt_fit_mode,
+                        tpt_n_estimators=tpt_n_estimators,
+                        resolved_fde=resolved_fde,
+                    ),
                 ),
                 runner,
             )
@@ -220,3 +235,63 @@ def _time_budget_seconds(time_budget_minutes: float) -> float:
     if time_budget_minutes <= 0:
         return 0
     return max(1.0, time_budget_minutes * 60.0)
+
+
+def _parse_forecast_horizons(value: str) -> tuple[int, ...]:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise argparse.ArgumentTypeError("forecast horizons cannot be empty")
+    horizons: set[int] = set()
+    for part in parts:
+        if ":" in part:
+            bounds = part.split(":")
+            if len(bounds) != 2:
+                raise argparse.ArgumentTypeError(f"invalid horizon range: {part}")
+            start, end = (int(bounds[0]), int(bounds[1]))
+            if start > end:
+                raise argparse.ArgumentTypeError(f"horizon range start must be <= end: {part}")
+            horizons.update(range(start, end + 1))
+        else:
+            horizons.add(int(part))
+    if any(horizon < 0 for horizon in horizons):
+        raise argparse.ArgumentTypeError("forecast horizons must be nonnegative")
+    return tuple(sorted(horizons))
+
+
+def _build_report_metadata(
+    *,
+    data_file: Path,
+    target_column: str,
+    model_type: str,
+    resolved_window_minutes: int,
+    num_train_samples: int,
+    top_features_n: int,
+    validation_fraction: float,
+    forecast_horizons: tuple[int, ...],
+    include_frequency_candidate: bool,
+    tabpfn_device: str,
+    tabpfn_fit_mode: str,
+    tabpfn_n_estimators: int,
+    tpt_device: str,
+    tpt_fit_mode: str,
+    tpt_n_estimators: int,
+    resolved_fde: Path | None,
+) -> ReportMetadata:
+    return ReportMetadata(
+        target_column=target_column,
+        data_file=str(data_file),
+        model_type=model_type,
+        default_window_minutes=resolved_window_minutes,
+        num_train_samples=num_train_samples,
+        top_features_n=top_features_n,
+        validation_fraction=validation_fraction,
+        forecast_horizons=forecast_horizons,
+        include_frequency_candidate=include_frequency_candidate,
+        tabpfn_device=tabpfn_device,
+        tabpfn_fit_mode=tabpfn_fit_mode,
+        tabpfn_n_estimators=tabpfn_n_estimators,
+        tpt_device=tpt_device,
+        tpt_fit_mode=tpt_fit_mode,
+        tpt_n_estimators=tpt_n_estimators,
+        fde_root=str(resolved_fde) if resolved_fde is not None else None,
+    )
