@@ -1,5 +1,7 @@
 # Soft Sensor AutoResearch
 
+[中文版](README.zh-CN.md)
+
 Local offline AutoResearch for soft-sensor fitability validation with FDE TabPFN3.
 
 This repository is both:
